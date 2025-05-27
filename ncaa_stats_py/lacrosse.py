@@ -462,10 +462,10 @@ def load_lacrosse_teams(
     """
     # start_year = 2008
 
-    # if get_womens_lacrosse_data is True:
-    #     sport_id = "WLA"
-    # else:
-    #     sport_id = "MLA"
+    if get_womens_lacrosse_data is True:
+        sport_id = "WLA"
+    else:
+        sport_id = "MLA"
 
     teams_df = pd.DataFrame()
     teams_df_arr = []
