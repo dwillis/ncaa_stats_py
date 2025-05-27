@@ -530,6 +530,11 @@ def _stat_id_dict() -> dict:
             },
         },
         "womens_lacrosse": {  # WLA
+            2025: {
+                "season": 2025,
+                "goalkeepers": 15648,
+                "non_goalkeepers": 15647
+            },
             2024: {
                 "season": 2024,
                 "goalkeepers": 15155,
