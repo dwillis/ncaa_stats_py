@@ -491,7 +491,7 @@ def load_lacrosse_teams(
 
         for d in ncaa_divisions:
             try:
-                temp_df = get_lacrosse_teams(season=s, level=d)
+                temp_df = get_lacrosse_teams(season=s, level=d, get_womens_lacrosse_data=get_womens_lacrosse_data)
                 teams_df_arr.append(temp_df)
                 del temp_df
             except Exception as e:
