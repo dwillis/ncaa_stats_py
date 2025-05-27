@@ -2179,6 +2179,9 @@ def get_lacrosse_player_season_stats(
         "player_free_position_goals",
         "player_Fouls",
         "player_draw_control",
+        "player_red_cards",
+        "player_yellow_cards",
+        "player_green_cards",
         'goalie_GP',
         "goalie_GS",
         "goalie_minutes_played",
@@ -2452,6 +2455,9 @@ def get_lacrosse_player_season_stats(
             "Freepos Goals": "player_free_position_goals",
             "Fouls": "player_Fouls",
             "Draw Controls": "player_draw_control",
+            "RC": "player_red_cards",
+            "YC": "player_yellow_cards",
+            "GC": "player_green_cards"
         },
         inplace=True,
     )
