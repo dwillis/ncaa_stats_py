@@ -2051,9 +2051,12 @@ def get_lacrosse_team_roster(team_id: int) -> pd.DataFrame:
 
 def get_lacrosse_player_season_stats(
     team_id: int,
+    season: int,
+    level: str | int,
+    get_womens_lacrosse_data: bool = False
 ) -> pd.DataFrame:
     """
-    Given a team ID, this function retrieves and parses
+    Given a team ID, season, and level, this function retrieves and parses
     the season stats for all of the players in a given lacrosse team.
 
     Parameters
@@ -2063,6 +2066,19 @@ def get_lacrosse_player_season_stats(
         Specifies the team you want stats from.
         This is separate from a school ID, which identifies the institution.
         A team ID should be unique to a school, and a season.
+
+    `season` (int, mandatory):
+        Required argument.
+        Specifies the season you want stats from.
+
+    `level` (str | int, mandatory):
+        Required argument.
+        Specifies the NCAA division/level (1/"I", 2/"II", 3/"III").
+
+    `get_womens_lacrosse_data` (bool, optional):
+        Optional argument.
+        If you want women's lacrosse data instead of men's lacrosse data,
+        set this to `True`.
 
     Usage
     ----------
@@ -2080,7 +2096,11 @@ def get_lacrosse_player_season_stats(
         "Get the season stats of the " +
         "2024 Holy Cross lacrosse team (D1, ID: 571401)."
     )
-    df = get_lacrosse_player_season_stats(team_id=571401)
+    df = get_lacrosse_player_season_stats(
+        team_id=571401, 
+        season=2024, 
+        level=1
+    )
     print(df)
 
     # Get the season stats of the
@@ -2089,43 +2109,11 @@ def get_lacrosse_player_season_stats(
         "Get the season stats of the " +
         "2023 Rockhurst lacrosse team (D1, ID: 546969)."
     )
-    df = get_lacrosse_player_season_stats(team_id=546969)
-    print(df)
-
-    # Get the season stats of the
-    # 2022 Trine lacrosse men's team (D3, ID: 530331).
-    print(
-        "Get the season stats of the " +
-        "2022 Trine lacrosse team (D3, ID: 530331)."
+    df = get_lacrosse_player_season_stats(
+        team_id=546969, 
+        season=2023, 
+        level="I"
     )
-    df = get_lacrosse_player_season_stats(team_id=530331)
-    print(df)
-
-    # Get the season stats of the
-    # 2021 Loyola Maryland men's lacrosse team (D1, ID: 507844).
-    print(
-        "Get the season stats of the " +
-        "2021 Loyola Maryland lacrosse team (D1, ID: 507844)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=507844)
-    print(df)
-
-    # Get the season stats of the
-    # 2020 Chestnut Hill men's lacrosse team (D2, ID: 493958).
-    print(
-        "Get the season stats of the " +
-        "2020 Chestnut Hill lacrosse team (D2, ID: 493958)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=493958)
-    print(df)
-
-    # Get the season stats of the
-    # 2019 Heidelberg men's lacrosse team (D1, ID: 473515).
-    print(
-        "Get the season stats of the " +
-        "2019 Heidelberg lacrosse team (D1, ID: 473515)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=473515)
     print(df)
 
     ########################################
@@ -2138,52 +2126,12 @@ def get_lacrosse_player_season_stats(
         "Get the season stats of the " +
         "2024 Akron women's lacrosse team (D1, ID: 572132)."
     )
-    df = get_lacrosse_player_season_stats(team_id=572132)
-    print(df)
-
-    # Get the season stats of the
-    # 2023 Grand Valley St. women's lacrosse team (D2, ID: 546428).
-    print(
-        "Get the season stats of the " +
-        "2023 Grand Valley St. women's lacrosse team (D2, ID: 546428)."
+    df = get_lacrosse_player_season_stats(
+        team_id=572132, 
+        season=2024, 
+        level=1, 
+        get_womens_lacrosse_data=True
     )
-    df = get_lacrosse_player_season_stats(team_id=546428)
-    print(df)
-
-    # Get the season stats of the
-    # 2022 Hanover women's lacrosse team (D3, ID: 525826).
-    print(
-        "Get the season stats of the " +
-        "2022 Hanover women's lacrosse team (D3, ID: 525826)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=525826)
-    print(df)
-
-    # Get the season stats of the
-    # 2021 Winthrop women's lacrosse team (D1, ID: 508431).
-    print(
-        "Get the season stats of the " +
-        "2021 Winthrop women's lacrosse team (D1, ID: 508431)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=508431)
-    print(df)
-
-    # Get the season stats of the
-    # 2020 Lees-McRae Wisconsin women's lacrosse team (D1, ID: 492977).
-    print(
-        "Get the season stats of the " +
-        "2020 Lees-McRae Wisconsin women's lacrosse team (D1, ID: 492977)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=492977)
-    print(df)
-
-    # Get the season stats of the
-    # 2019 Salisbury women's lacrosse team (D1, ID: 453384).
-    print(
-        "Get the season stats of the " +
-        "2019 Salisbury women's lacrosse team (D1, ID: 453384)."
-    )
-    df = get_lacrosse_player_season_stats(team_id=453384)
     print(df)
 
     ```
@@ -2248,47 +2196,50 @@ def get_lacrosse_player_season_stats(
 
     stats_df = pd.DataFrame()
 
-    # stats_df_arr = []
     temp_df = pd.DataFrame()
 
-    try:
-        team_df = load_lacrosse_teams()
-
-        team_df = team_df[team_df["team_id"] == team_id]
-
-        season = team_df["season"].iloc[0]
-        ncaa_division = int(team_df["ncaa_division"].iloc[0])
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
-        sport_id = "MLA"
-        players_stat_id = _get_stat_id(
-            sport="mens_lacrosse", season=season, stat_type="non_goalkeepers"
-        )
-        goalkeepers_stat_id = _get_stat_id(
-            sport="mens_lacrosse", season=season, stat_type="goalkeepers"
-        )
-    except Exception:
-        team_df = load_lacrosse_teams(get_womens_lacrosse_data=True)
-
-        team_df = team_df[team_df["team_id"] == team_id]
-
-        season = team_df["season"].iloc[0]
-        ncaa_division = int(team_df["ncaa_division"].iloc[0])
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
+    # Set sport_id based on parameter
+    if get_womens_lacrosse_data:
         sport_id = "WLA"
+    else:
+        sport_id = "MLA"
+
+    # Get team info for just this season/level - much more efficient!
+    team_df = get_lacrosse_teams(
+        season=season, 
+        level=level, 
+        get_womens_lacrosse_data=get_womens_lacrosse_data
+    )
+    team_df = team_df[team_df["team_id"] == team_id]
+    
+    if team_df.empty:
+        raise ValueError(
+            f"Team ID {team_id} not found in {season} season "
+            f"level {level} {'women\'s' if get_womens_lacrosse_data else 'men\'s'} lacrosse"
+        )
+
+    # Extract team information
+    ncaa_division = int(team_df["ncaa_division"].iloc[0])
+    ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+    team_conference_name = team_df["team_conference_name"].iloc[0]
+    school_name = team_df["school_name"].iloc[0]
+    school_id = int(team_df["school_id"].iloc[0])
+
+    # Get stat IDs for this sport/season
+    if get_womens_lacrosse_data:
         players_stat_id = _get_stat_id(
             sport="womens_lacrosse", season=season, stat_type="non_goalkeepers"
         )
         goalkeepers_stat_id = _get_stat_id(
             sport="womens_lacrosse", season=season, stat_type="goalkeepers"
         )
-
-    del team_df
+    else:
+        players_stat_id = _get_stat_id(
+            sport="mens_lacrosse", season=season, stat_type="non_goalkeepers"
+        )
+        goalkeepers_stat_id = _get_stat_id(
+            sport="mens_lacrosse", season=season, stat_type="goalkeepers"
+        )
 
     home_dir = expanduser("~")
     home_dir = _format_folder_str(home_dir)
@@ -2355,6 +2306,7 @@ def get_lacrosse_player_season_stats(
     if load_from_cache is True:
         return games_df
 
+    # Rest of the function remains the same...
     for url in [players_url, gk_url]:
         stat_type_str = ""
         if str(players_stat_id) in url:
@@ -2408,11 +2360,9 @@ def get_lacrosse_player_season_stats(
             temp_df = pd.DataFrame(
                 data=[t_cells],
                 columns=table_headers,
-                # index=[0]
             )
 
             player_id = t.find("a").get("href")
-
             player_id = player_id.replace("/players", "").replace("/", "")
 
             if "year_stat_category_id" in player_id:
@@ -2422,7 +2372,6 @@ def get_lacrosse_player_season_stats(
                     "year_stat_category_id=", ""
                 )
                 stat_id = int(stat_id)
-
                 player_id = player_id.split("?")[0]
 
             player_id = int(player_id)
@@ -2436,6 +2385,7 @@ def get_lacrosse_player_season_stats(
             else:
                 gk_df_arr.append(temp_df)
 
+    # Rest of processing remains the same...
     gk_df = pd.concat(gk_df_arr, ignore_index=True)
     gk_df = gk_df.replace("", None)
     gk_df = gk_df.fillna(0)
@@ -2462,7 +2412,7 @@ def get_lacrosse_player_season_stats(
         },
         inplace=True,
     )
-    # print(gk_df.columns)
+    
     gk_df[["gk_min", "gk_sec"]] = gk_df["goalie_minutes_played"].str.split(
         ":", expand=True
     )
@@ -2470,7 +2420,6 @@ def get_lacrosse_player_season_stats(
     gk_df[["gk_min", "gk_sec"]] = gk_df[["gk_min", "gk_sec"]].astype("uint64")
 
     gk_df["goalie_seconds_played"] = (gk_df["gk_min"] * 60) + gk_df["gk_sec"]
-
     gk_df = gk_df[gk_df["goalie_seconds_played"] > 0]
     gk_df.drop(columns=["gk_min", "gk_sec"], inplace=True)
 
@@ -2512,7 +2461,6 @@ def get_lacrosse_player_season_stats(
 
     if "player_height" not in players_df.columns:
         players_df["player_height"] = ""
-    # print(players_df.columns)
 
     stats_df = players_df.merge(
         gk_df,
@@ -2538,18 +2486,15 @@ def get_lacrosse_player_season_stats(
     stats_df["team_id"] = team_id
     stats_df["sport_id"] = sport_id
 
-    # print(stats_df.columns)
     for i in stats_df.columns:
         if i in stat_columns:
             pass
         else:
-            raise ValueError(
-                f"Unhandled column name {i}"
-            )
+            raise ValueError(f"Unhandled column name {i}")
 
     stats_df = stats_df.reindex(columns=stat_columns)
-
     stats_df = stats_df.infer_objects()
+    
     stats_df.to_csv(
         f"{home_dir}/.ncaa_stats_py/"
         + f"lacrosse_{sport_id}/player_season_stats/"
@@ -2558,7 +2503,6 @@ def get_lacrosse_player_season_stats(
     )
 
     return stats_df
-
 
 def get_lacrosse_player_game_stats(player_id: int) -> pd.DataFrame:
     """
