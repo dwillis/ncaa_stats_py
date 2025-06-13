@@ -533,67 +533,80 @@ def _stat_id_dict() -> dict:
             2025: {
                 "season": 2025,
                 "goalkeepers": 15648,
-                "non_goalkeepers": 15647
+                "non_goalkeepers": 15647,
+                "team": 16780
             },
             2024: {
                 "season": 2024,
                 "goalkeepers": 15155,
-                "non_goalkeepers": 15154
+                "non_goalkeepers": 15154,
+                "team": 16541
             },
             2023: {
                 "season": 2023,
                 "goalkeepers": 15537,
-                "non_goalkeepers": 15536
+                "non_goalkeepers": 15536,
+                "team": 16300
             },
             2022: {
                 "season": 2022,
                 "goalkeepers": 15539,
-                "non_goalkeepers": 15538
+                "non_goalkeepers": 15538,
+                "team": 15840
             },
             2021: {
                 "season": 2021,
                 "goalkeepers": 15541,
-                "non_goalkeepers": 15540
+                "non_goalkeepers": 15540,
+                "team": 15561
             },
             2020: {
                 "season": 2020,
                 "goalkeepers": 15543,
-                "non_goalkeepers": 15542
+                "non_goalkeepers": 15542,
+                "team": 15181
             },
             2019: {
                 "season": 2019,
                 "goalkeepers": 15545,
-                "non_goalkeepers": 15544
+                "non_goalkeepers": 15544,
+                "team": 14340
             },
             2018: {
                 "season": 2018,
                 "goalkeepers": 15547,
-                "non_goalkeepers": 15546
+                "non_goalkeepers": 15546,
+                "team": 12926
             },
             2017: {
                 "season": 2017,
                 "goalkeepers": 15549,
-                "non_goalkeepers": 15548
+                "non_goalkeepers": 15548,
+                "team": 12581
             },
             2016: {
                 "season": 2016,
                 "goalkeepers": 15551,
-                "non_goalkeepers": 15550
+                "non_goalkeepers": 15550,
+                "team": 12385
             },
             2015: {
                 "season": 2015,
                 "goalkeepers": 15553,
-                "non_goalkeepers": 15552
+                "non_goalkeepers": 15552,
+                "team": 12140
             },
             2014: {
                 "season": 2014,
                 "goalkeepers": 15555,
-                "non_goalkeepers": 15554
+                "non_goalkeepers": 15554,
+                "team": 11660
             },
             2013: {
                 "season": 2013,
                 "goalkeepers": 15557,
-                "non_goalkeepers": 15556
+                "non_goalkeepers": 15556,
+                "team": 11320
             },
             2012: {
                 "season": 2012,
