@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 license = {text = "MIT"}
 
 authors = [
-    {name = "Joseph Armstrong", email="armstrongjoseph08@gmail.com"}
+    {name = "Joseph Armstrong", email="armstrongjoseph08@gmail.com"},
+    {name = "Derek Willis", email="dwillis@gmail.com"}
 ]
 
 maintainers = [
@@ -36,14 +37,15 @@ dependencies = [
     "pandas>=2.2.3",
     "tqdm>=4.67.1",
     "requests>=2.32.3",
-    "lxml>=5.3",
-    "pytz>=2024.2",
+    "lxml>=5.3.0",
+    "pytz>=2025.1",
     "beautifulsoup4>=4.12.3",
-    "python-dateutil>=2.9.0"
+    "python-dateutil>=2.9.0",
+    "playwright>=1.54.0"
 ]
 
 [project.urls]
-homepage = "https://github.com/armstjc/ncaa_stats_py"
-documentation = "https://github.com/armstjc/ncaa_stats_py"
-repository = "https://github.com/armstjc/ncaa_stats_py.git"
-changelog = "https://github.com/armstjc/ncaa_stats_py/blob/main/CHANGELOG.md"
+homepage = "https://github.com/dwillis/ncaa_stats_py"
+documentation = "https://github.com/dwillis/ncaa_stats_py"
+repository = "https://github.com/dwillis/ncaa_stats_py.git"
+changelog = "https://github.com/dwillis/ncaa_stats_py/blob/main/CHANGELOG.md"

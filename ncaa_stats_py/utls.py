@@ -12,6 +12,7 @@
 # - 2024-12-17 10:30 AM EDT
 # - 2025-01-04 03:00 PM EDT
 # - 2025-01-18 02:40 PM EDT
+# - 2025-01-20 (Updated with Playwright)
 
 
 import logging
@@ -20,11 +21,12 @@ from datetime import datetime
 from os import mkdir
 from os.path import exists, expanduser, getmtime
 from secrets import SystemRandom
+from typing import Optional, Dict, Any
 
 import numpy as np
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
 
 
 def _stat_id_dict() -> dict:
@@ -663,126 +665,293 @@ def _stat_id_dict() -> dict:
     return stat_id_dict
 
 
-def _web_headers() -> dict:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4)"
-        + " AppleWebKit/537.36 (KHTML, like Gecko) "
-        + "Chrome/135.0.0.0 Safari/537.36",
-    }
-    return headers
+# Global browser instance for reuse
+_browser_instance: Optional[Browser] = None
+_browser_context: Optional[BrowserContext] = None
 
 
-def _get_webpage(url: str) -> requests.Response:
-    """ """
+class WebPageResponse:
+    """Simple response wrapper to mimic requests.Response interface"""
+    
+    def __init__(self, content: str, status_code: int = 200):
+        self.text = content
+        self.content = content.encode('utf-8')
+        self.status_code = status_code
+
+
+def _get_browser() -> tuple[Browser, BrowserContext]:
+    """Get or create a browser instance with proper configuration for NCAA site"""
+    global _browser_instance, _browser_context
+    
+    if _browser_instance is None or _browser_context is None:
+        playwright = sync_playwright().start()
+        
+        # Launch browser with options to avoid detection
+        _browser_instance = playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-ipc-flooding-protection',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor'
+            ]
+        )
+        
+        # Create context with realistic user agent and viewport
+        _browser_context = _browser_instance.new_context(
+            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080},
+            locale='en-US',
+            timezone_id='America/New_York',
+            extra_http_headers={
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"macOS"',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
+            }
+        )
+        
+        # Add additional stealth measures
+        _browser_context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+            
+            // Remove the automation indicator
+            delete navigator.__proto__.webdriver;
+            
+            // Mock languages and plugins
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
+            
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            
+            // Mock the chrome object
+            window.chrome = {
+                runtime: {},
+            };
+            
+            // Mock permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+        """)
+    
+    return _browser_instance, _browser_context
+
+
+def _close_browser():
+    """Close the global browser instance"""
+    global _browser_instance, _browser_context
+    
+    if _browser_context:
+        _browser_context.close()
+        _browser_context = None
+    
+    if _browser_instance:
+        _browser_instance.close()
+        _browser_instance = None
+
+
+def _get_webpage(url: str, timeout: int = 60000, wait_for_selector: Optional[str] = None) -> WebPageResponse:
+    """
+    Get webpage content using Playwright to handle JavaScript and avoid bot detection.
+    
+    Args:
+        url: The URL to fetch
+        timeout: Timeout in milliseconds (default 60 seconds)
+        wait_for_selector: Optional CSS selector to wait for before returning content
+        
+    Returns:
+        WebPageResponse: Object with .text attribute containing HTML content
+    """
     rng = SystemRandom()
-    headers = _web_headers()
-    response = requests.get(headers=headers, url=url, timeout=30)
-    random_integer = 5 + rng.randint(a=0, b=5)
-    time.sleep(random_integer)
-    if response.status_code == 200:
-        return response
-    elif response.status_code == 400:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 400]: Could not access "
-            + "the following URL due to a malformed request "
-            + "being pushed by the client (A.K.A. the computer running "
-            + f"this code that just got this error).\nURL:{url}"
-        )
-    elif response.status_code == 401:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 401]: Could not access the following URL "
-            + "because the website does not authorize your access "
-            + f"to this part of the website.\nURL:{url}"
-        )
-    elif response.status_code == 403:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 403]: Could not access the following URL "
-            + "because the website outright refuses your access "
-            + "to this part of the website, and/or the website as a whole."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 404:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 404]: Could not find anything associated "
-            + "with the following URL at this time."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 408:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 408]: The request for the following URL timed out." +
-            f"\nURL:{url}"
-        )
-    elif response.status_code == 418:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 418]: The request for the following URL "
-            + "could not be completed because the server is a teapot."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 429:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 429]: The request for the following URL "
-            + "could not be completed because the server believes that "
-            + "you have sent too many requests in too short of a timeframe."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 451:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 451]: The request for the following URL "
-            + "could not be completed because the contents of the URL "
-            + "are unavailable for legal reasons."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 500:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 500]: The request for the following URL "
-            + "could not be completed due to an internal server error."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 502:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 502]: The request for the following URL "
-            + "could not be completed due to a bad gateway."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 503:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 503]: The request for the following URL "
-            + "could not be completed because the webpage is unavailable."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 504:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 504]: The request for the following URL "
-            + "could not be completed due to a gateway timeout."
-            + f"\nURL:{url}"
-        )
-    elif response.status_code == 511:
-        time.sleep(10)
-        raise ConnectionRefusedError(
-            "[HTTP 500]: The request for the following URL "
-            + "could not be completed because you need to authenticate "
-            + "to gain network access."
-            + f"\nURL:{url}"
-        )
-    else:
-        time.sleep(10)
-        raise ConnectionAbortedError(
-            "Could not access the following URL, and received "
-            + f"an unhandled status code of `{response.status_code}`"
-            + f"\nURL: `{url}`"
-        )
+    browser, context = _get_browser()
+    
+    try:
+        # Create new page
+        page = context.new_page()
+        
+        # Set additional page-level configurations
+        page.set_extra_http_headers({
+            'Referer': 'https://www.google.com/',
+        })
+        
+        # Navigate to the page with timeout
+        try:
+            logging.info(f"Navigating to: {url}")
+            response = page.goto(
+                url, 
+                timeout=timeout,
+                wait_until='domcontentloaded'
+            )
+            
+            if response is None:
+                raise ConnectionError(f"Failed to load page: {url}")
+            
+            # Check response status
+            status = response.status
+            logging.info(f"Response status: {status}")
+            
+            # Handle different status codes
+            if status == 200:
+                pass  # Success
+            elif status == 400:
+                raise ConnectionRefusedError(
+                    "[HTTP 400]: Could not access "
+                    + "the following URL due to a malformed request "
+                    + "being pushed by the client (A.K.A. the computer running "
+                    + f"this code that just got this error).\nURL:{url}"
+                )
+            elif status == 401:
+                raise ConnectionRefusedError(
+                    "[HTTP 401]: Could not access the following URL "
+                    + "because the website does not authorize your access "
+                    + f"to this part of the website.\nURL:{url}"
+                )
+            elif status == 403:
+                raise ConnectionRefusedError(
+                    "[HTTP 403]: Could not access the following URL "
+                    + "because the website outright refuses your access "
+                    + "to this part of the website, and/or the website as a whole."
+                    + f"\nURL:{url}"
+                )
+            elif status == 404:
+                raise ConnectionRefusedError(
+                    "[HTTP 404]: Could not find anything associated "
+                    + "with the following URL at this time."
+                    + f"\nURL:{url}"
+                )
+            elif status == 408:
+                raise ConnectionRefusedError(
+                    "[HTTP 408]: The request for the following URL timed out." +
+                    f"\nURL:{url}"
+                )
+            elif status == 418:
+                raise ConnectionRefusedError(
+                    "[HTTP 418]: The request for the following URL "
+                    + "could not be completed because the server is a teapot."
+                    + f"\nURL:{url}"
+                )
+            elif status == 429:
+                # For rate limiting, wait longer before retrying
+                time.sleep(30)
+                raise ConnectionRefusedError(
+                    "[HTTP 429]: The request for the following URL "
+                    + "could not be completed because the server believes that "
+                    + "you have sent too many requests in too short of a timeframe."
+                    + f"\nURL:{url}"
+                )
+            elif status == 451:
+                raise ConnectionRefusedError(
+                    "[HTTP 451]: The request for the following URL "
+                    + "could not be completed because the contents of the URL "
+                    + "are unavailable for legal reasons."
+                    + f"\nURL:{url}"
+                )
+            elif status == 500:
+                raise ConnectionRefusedError(
+                    "[HTTP 500]: The request for the following URL "
+                    + "could not be completed due to an internal server error."
+                    + f"\nURL:{url}"
+                )
+            elif status == 502:
+                raise ConnectionRefusedError(
+                    "[HTTP 502]: The request for the following URL "
+                    + "could not be completed due to a bad gateway."
+                    + f"\nURL:{url}"
+                )
+            elif status == 503:
+                raise ConnectionRefusedError(
+                    "[HTTP 503]: The request for the following URL "
+                    + "could not be completed because the webpage is unavailable."
+                    + f"\nURL:{url}"
+                )
+            elif status == 504:
+                raise ConnectionRefusedError(
+                    "[HTTP 504]: The request for the following URL "
+                    + "could not be completed due to a gateway timeout."
+                    + f"\nURL:{url}"
+                )
+            elif status == 511:
+                raise ConnectionRefusedError(
+                    "[HTTP 511]: The request for the following URL "
+                    + "could not be completed because you need to authenticate "
+                    + "to gain network access."
+                    + f"\nURL:{url}"
+                )
+            else:
+                raise ConnectionAbortedError(
+                    "Could not access the following URL, and received "
+                    + f"an unhandled status code of `{status}`"
+                    + f"\nURL: `{url}`"
+                )
+            
+            # Wait for specific selector if provided
+            if wait_for_selector:
+                try:
+                    page.wait_for_selector(wait_for_selector, timeout=10000)
+                    logging.info(f"Found selector: {wait_for_selector}")
+                except Exception as e:
+                    logging.warning(f"Selector {wait_for_selector} not found: {e}")
+            
+            # Wait for network to be mostly idle (helps with dynamic content)
+            try:
+                page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception as e:
+                logging.warning(f"Network idle timeout: {e}")
+            
+            # Additional wait for JavaScript to execute
+            page.wait_for_timeout(2000)
+            
+            # Get the page content
+            content = page.content()
+            logging.info(f"Retrieved {len(content)} characters from {url}")
+            
+            # Random delay to avoid being flagged as bot
+            random_delay = 3 + rng.randint(0, 7)  # 3-10 seconds
+            time.sleep(random_delay)
+            
+            return WebPageResponse(content, status)
+            
+        except Exception as e:
+            logging.error(f"Error loading page {url}: {e}")
+            raise
+        finally:
+            # Always close the page
+            page.close()
+            
+    except Exception as e:
+        logging.error(f"Error in _get_webpage for {url}: {e}")
+        # Close browser on critical errors and recreate next time
+        _close_browser()
+        raise
 
 
 def _format_folder_str(folder_str: str) -> str:
@@ -827,13 +996,19 @@ def _get_schools() -> pd.DataFrame:
         return schools_df
     else:
         url = "https://stats.ncaa.org/teams/history"
-        response = _get_webpage(url=url)
+        response = _get_webpage(url=url, wait_for_selector="select#org_id_select")
 
         soup = BeautifulSoup(response.text, features="lxml")
         schools_ar = soup.find(
             "select",
             {"name": "org_id", "id": "org_id_select"}
         )
+        
+        if schools_ar is None:
+            logging.error("Could not find school select element. Page might have loaded incorrectly.")
+            logging.debug(f"Page content preview: {response.text[:1000]}")
+            raise ValueError("Could not find school selection dropdown on NCAA stats page")
+        
         schools_ar = schools_ar.find_all("option")
 
         for s in schools_ar:
@@ -950,14 +1125,34 @@ def _name_smother(name_str: str) -> str:
         return name_str
 
 
-if __name__ == "__main__":
-    # url = "https://stats.ncaa.org/teams/574226/season_to_date_stats"
-    # response = _get_webpage(url=url)
+# Clean up function to be called when the module is being shut down
+def cleanup():
+    """Clean up browser resources"""
+    _close_browser()
 
-    # season = 2024
-    # sport = "baseball"
-    # stat_type = "batting"
-    # stat_id = _get_stat_id(
-    #     sport=sport, season=season, stat_type=stat_type
-    # )
-    print(_get_minute_formatted_time_from_seconds(15604))
+
+# Register cleanup function
+import atexit
+atexit.register(cleanup)
+
+
+if __name__ == "__main__":
+    # Test the new webpage function
+    try:
+        print("Testing NCAA stats page access...")
+        response = _get_webpage("https://stats.ncaa.org/teams/history")
+        print(f"Successfully retrieved {len(response.text)} characters")
+        
+        # Test parsing
+        soup = BeautifulSoup(response.text, features="lxml")
+        schools_select = soup.find("select", {"id": "org_id_select"})
+        if schools_select:
+            options = schools_select.find_all("option")
+            print(f"Found {len(options)} school options")
+        else:
+            print("Could not find schools select element")
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        cleanup()
