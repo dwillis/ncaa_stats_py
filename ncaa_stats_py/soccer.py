@@ -1547,19 +1547,40 @@ def get_soccer_team_roster(
 
     # Find the roster table
     try:
-        table = soup.find("table", {"class": "dataTable small_font"})
+        # Try multiple table selectors based on the HTML structure
+        table = soup.find("table", {"id": "rosters_form_players_16900_data_table"})
         if table is None:
             table = soup.find("table", {"class": "dataTable small_font no_padding"})
         if table is None:
-            # Try finding any table with roster data
+            table = soup.find("table", {"class": "dataTable small_font"})
+        if table is None:
+            # Try finding any table with an ID containing "data_table"
+            table = soup.find("table", {"id": lambda x: x and "data_table" in x})
+        if table is None:
+            # Try finding any table with dataTable class
+            table = soup.find("table", {"class": lambda x: x and "dataTable" in x})
+        if table is None:
+            # Last resort: find any table
             table = soup.find("table")
             
         if table is None:
             logging.warning(f"Could not find roster table for team {team_id}")
             return pd.DataFrame()
 
-        table_headers = table.find("thead").find_all("th")
-        table_headers = [x.text.strip() for x in table_headers]
+        thead = table.find("thead")
+        if thead:
+            table_headers = thead.find_all("th")
+            table_headers = [x.text.strip() for x in table_headers]
+        else:
+            # If no thead, try to get headers from first row
+            first_row = table.find("tr")
+            if first_row:
+                table_headers = [th.text.strip() for th in first_row.find_all(["th", "td"])]
+            else:
+                logging.error(f"Could not find table headers for team {team_id}")
+                return pd.DataFrame()
+
+        logging.info(f"Found table with headers: {table_headers}")
 
     except Exception as e:
         logging.error(f"Could not parse roster table headers: {e}")
@@ -1569,20 +1590,28 @@ def get_soccer_team_roster(
     try:
         tbody = table.find("tbody")
         if tbody is None:
-            t_rows = table.find_all("tr")[1:]  # Skip header row
+            # If no tbody, get all rows except first (header)
+            all_rows = table.find_all("tr")
+            t_rows = all_rows[1:] if len(all_rows) > 1 else []
         else:
             t_rows = tbody.find_all("tr")
 
-        for t in t_rows:
+        logging.info(f"Found {len(t_rows)} roster rows")
+
+        for row_idx, t in enumerate(t_rows):
             t_cells = t.find_all("td")
             if len(t_cells) == 0:
+                logging.debug(f"Skipping row {row_idx}: no td cells")
                 continue
                 
             t_cells_text = [x.text.strip() for x in t_cells]
 
             # Skip empty rows or header rows
             if len(t_cells_text) == 0 or all(cell == "" for cell in t_cells_text):
+                logging.debug(f"Skipping row {row_idx}: empty or all blank cells")
                 continue
+
+            logging.debug(f"Processing row {row_idx} with {len(t_cells_text)} cells: {t_cells_text[:3]}...")
 
             # Handle the specific NCAA soccer roster format
             # Expected columns: GP, GS, #, Name, Class, Position, Height, Hometown, High School
@@ -1601,30 +1630,33 @@ def get_soccer_team_roster(
 
             # Get player ID and URL from the link in the Name column
             try:
-                # Look for the player link in the name cell (usually 4th column, index 3)
-                name_cell = t_cells[3] if len(t_cells) > 3 else None
-                if name_cell:
-                    player_link = name_cell.find("a")
-                    if player_link:
-                        player_href = player_link.get("href")
+                # Look for any link in this row (player links)
+                player_link = t.find("a")
+                if player_link:
+                    player_href = player_link.get("href")
+                    if player_href and "/players/" in player_href:
                         temp_df["player_url"] = f"https://stats.ncaa.org{player_href}"
                         
                         # Extract player ID from URL (/players/10001471 -> 10001471)
-                        player_id = player_href.replace("/players/", "").replace("/", "")
-                        player_id = int(player_id)
+                        player_id_str = player_href.replace("/players/", "").replace("/", "")
+                        player_id = int(player_id_str)
                         temp_df["player_id"] = player_id
                         
                         # Also get the clean player name from the link text
                         player_name = player_link.text.strip()
-                        if player_name:
+                        if player_name and "Name" in temp_df.columns:
                             temp_df["Name"] = player_name
+                        
+                        logging.debug(f"Found player: {player_name} (ID: {player_id})")
                     else:
                         temp_df["player_url"] = None
                         temp_df["player_id"] = None
                 else:
                     temp_df["player_url"] = None
                     temp_df["player_id"] = None
-            except (ValueError, AttributeError, IndexError):
+                    logging.debug(f"No player link found in row {row_idx}")
+            except (ValueError, AttributeError, IndexError) as e:
+                logging.debug(f"Error extracting player info from row {row_idx}: {e}")
                 temp_df["player_url"] = None
                 temp_df["player_id"] = None
 
