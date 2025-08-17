@@ -62,8 +62,7 @@ def get_soccer_teams(
         sport_key = "mens_soccer"
 
     # For soccer: user season (2025) means Fall 2025 = Academic Year 2025-26
-    # stat_id_dict uses academic year ending (2026) as the key
-    stat_dict_season = season + 1
+    stat_dict_season = season
 
     try:
         stat_sequence = _get_stat_id(sport_key, stat_dict_season, "team")
@@ -153,13 +152,13 @@ def get_soccer_teams(
     
     change_url = (
         "https://stats.ncaa.org/rankings/change_sport_year_div?"
-        + f"academic_year={season + 1}.0&division={ncaa_level}.0"
+        + f"academic_year={season}.0&division={ncaa_level}.0"
         + f"&sport_code={sport_code}"
     )
 
     inst_url = (
         "https://stats.ncaa.org/rankings/institution_trends?"
-        + f"academic_year={season + 1}.0&division={ncaa_level}.0&"
+        + f"academic_year={season}.0&division={ncaa_level}.0&"
         + f"ranking_period=0&sport_code={sport_code}"
         + f"&stat_seq={stat_sequence}"
     )
@@ -425,7 +424,7 @@ def load_soccer_teams(
 
     teams_df_arr = []
     now = datetime.now()
-    ncaa_seasons = [x for x in range(start_year, (now.year + 1))]
+    ncaa_seasons = [x for x in range(start_year, (now.year))]
 
     logging.info("Loading soccer teams across seasons; this may take a while")
     for s in tqdm(ncaa_seasons, desc="seasons"):
