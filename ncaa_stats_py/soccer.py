@@ -439,29 +439,6 @@ def load_soccer_teams(
 	return pd.DataFrame()
 
 
-def _playwright_fetch(url: str, wait_for: str | None = None) -> str | None:
-	"""Render a URL with Playwright and return page.content() or None on failure.
-	"""
-	try:
-		from playwright.sync_api import sync_playwright
-		with sync_playwright() as pw:
-			browser = pw.chromium.launch(headless=True)
-			context = browser.new_context()
-			page = context.new_page()
-			page.goto(url, timeout=45000)
-			if wait_for:
-				try:
-					page.wait_for_selector(wait_for, timeout=30000)
-				except Exception:
-					pass
-			content = page.content()
-			try:
-				browser.close()
-			except Exception:
-				pass
-			return content
-	except Exception:
-		return None
 
 
 def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
@@ -478,15 +455,15 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 	# Determine sport_id via cached schools if possible (lightweight)
 	url = f"https://stats.ncaa.org/teams/{team_id}"
 	try:
-		response_html = _playwright_fetch(url, wait_for='table')
-		if not response_html:
+		response = _get_webpage(url, wait_for_selector='table')
+		if not response or not response.text:
 			logging.warning("Failed to render team page with Playwright")
 			return games_df
 	except Exception:
 		logging.warning("Failed to fetch team page")
 		return games_df
 
-	soup = BeautifulSoup(response_html, features="lxml")
+	soup = BeautifulSoup(response.text, features="lxml")
 	# Minimal parse: find schedule table and walk rows
 	try:
 		table = soup.find("table")
