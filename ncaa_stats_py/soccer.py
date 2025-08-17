@@ -42,7 +42,7 @@ def get_soccer_teams(
 	Uses `WSO` and `MSO` for team sport codes per repository convention.
 	The cache directory is `.ncaa_stats_py/soccer_{sport_id}`.
 	"""
-	sport_id = ""
+	sport_id = "WSO" if get_womens_soccer_data else "MSO"
 	load_from_cache = True
 	home_dir = expanduser("~")
 	home_dir = _format_folder_str(home_dir)
