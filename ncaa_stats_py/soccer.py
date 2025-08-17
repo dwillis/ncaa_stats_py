@@ -1331,9 +1331,369 @@ def get_full_soccer_schedule(
     pass
 
 
-def get_soccer_team_roster(team_id: int) -> pd.DataFrame:
-    pass
+def get_soccer_team_roster(
+    team_id: int, 
+    season: int, 
+    get_womens_soccer_data: bool = False
+) -> pd.DataFrame:
+    """
+    Retrieves a soccer team's roster from a given team ID.
 
+    Parameters
+    ----------
+    `team_id` (int, mandatory):
+        Required argument.
+        Specifies the team you want a roster from.
+        This is separate from a school ID, which identifies the institution.
+        A team ID should be unique to a school, and a season.
+
+    `season` (int, mandatory):
+        Required argument.
+        The season year (e.g., 2025 for Fall 2025 season).
+
+    `get_womens_soccer_data` (bool, optional):
+        Optional argument (default: False).
+        If you want women's soccer data instead of men's soccer data,
+        set this to `True`.
+
+    Usage
+    ----------
+    ```python
+
+    from ncaa_stats_py.soccer import get_soccer_team_roster
+
+    ########################################
+    #          Men's soccer                #
+    ########################################
+
+    # Get the soccer roster for the
+    # 2024 UNC MLA team (D1, ID: 571437).
+    print(
+        "Get the soccer roster for the " +
+        "2024 UNC MSO team (D1, ID: 571437)."
+    )
+    df = get_soccer_team_roster(571437, 2024)
+    print(df)
+
+    # Get the soccer roster for the
+    # 2023 Duke MSO team (D1, ID: 546974).
+    print(
+        "Get the soccer roster for the " +
+        "2023 Duke MSO team (D1, ID: 546974)."
+    )
+    df = get_soccer_team_roster(546974, 2023)
+    print(df)
+
+    ########################################
+    #          Women's soccer              #
+    ########################################
+
+    # Get the soccer roster for the
+    # 2024 Stanford WSO team (D1, ID: 571908).
+    print(
+        "Get the soccer roster for the " +
+        "2024 Stanford WSO team (D1, ID: 571908)."
+    )
+    df = get_soccer_team_roster(571908, 2024, get_womens_soccer_data=True)
+    print(df)
+
+    # Get the soccer roster for the
+    # 2023 UCLA WSO team (D1, ID: 546455).
+    print(
+        "Get the soccer roster for the " +
+        "2023 UCLA WSO team (D1, ID: 546455)."
+    )
+    df = get_soccer_team_roster(546455, 2023, get_womens_soccer_data=True)
+    print(df)
+
+    ```
+
+    Returns
+    ----------
+    A pandas `DataFrame` object with
+    an NCAA soccer team's roster for that season.
+    """
+    # Set sport_id based on parameter
+    sport_id = "WSO" if get_womens_soccer_data else "MSO"
+    
+    roster_df = pd.DataFrame()
+    roster_df_arr = []
+    temp_df = pd.DataFrame()
+    url = f"https://stats.ncaa.org/teams/{team_id}/roster"
+    load_from_cache = True
+    home_dir = expanduser("~")
+    home_dir = _format_folder_str(home_dir)
+
+    stat_columns = [
+        "season",
+        "season_name",
+        "sport_id",
+        "ncaa_division",
+        "ncaa_division_formatted",
+        "team_conference_name",
+        "school_id",
+        "school_name",
+        "player_id",
+        "player_jersey_num",
+        "player_full_name",
+        "player_first_name",
+        "player_last_name",
+        "player_class",
+        "player_positions",
+        "player_height_string",
+        "player_weight",
+        "player_hometown",
+        "player_high_school",
+        "player_G",
+        "player_GS",
+        "player_url",
+    ]
+
+    # Try to get team info from teams cache
+    team_info_found = False
+    ncaa_division = 1
+    ncaa_division_formatted = "I"
+    team_conference_name = ""
+    school_name = None
+    school_id = None
+
+    try:
+        # Load teams for the specified sport and find the team
+        teams_df = get_soccer_teams(season, "I", get_womens_soccer_data=get_womens_soccer_data)
+        if not teams_df.empty:
+            team_row = teams_df[teams_df["team_id"] == team_id]
+            if not team_row.empty:
+                ncaa_division = team_row["ncaa_division"].iloc[0]
+                ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
+                team_conference_name = team_row["team_conference_name"].iloc[0] if pd.notna(team_row["team_conference_name"].iloc[0]) else ""
+                school_name = team_row["school_name"].iloc[0]
+                school_id = int(team_row["school_id"].iloc[0]) if pd.notna(team_row["school_id"].iloc[0]) else None
+                team_info_found = True
+                logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
+        
+        # If not found in Division I, try other divisions
+        if not team_info_found:
+            for div in ["II", "III"]:
+                teams_df = get_soccer_teams(season, div, get_womens_soccer_data=get_womens_soccer_data)
+                if not teams_df.empty:
+                    team_row = teams_df[teams_df["team_id"] == team_id]
+                    if not team_row.empty:
+                        ncaa_division = team_row["ncaa_division"].iloc[0]
+                        ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
+                        team_conference_name = team_row["team_conference_name"].iloc[0] if pd.notna(team_row["team_conference_name"].iloc[0]) else ""
+                        school_name = team_row["school_name"].iloc[0]
+                        school_id = int(team_row["school_id"].iloc[0]) if pd.notna(team_row["school_id"].iloc[0]) else None
+                        team_info_found = True
+                        logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
+                        break
+                        
+    except Exception as e:
+        logging.warning(f"Could not find team in teams cache: {e}")
+
+    # Ensure cache directories exist
+    import os
+    base_cache_dir = f"{home_dir}/.ncaa_stats_py"
+    soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
+    rosters_cache_dir = f"{soccer_cache_dir}/rosters"
+    
+    for d in [base_cache_dir, soccer_cache_dir, rosters_cache_dir]:
+        if not os.path.exists(d):
+            os.makedirs(d)
+
+    cache_file = f"{rosters_cache_dir}/{team_id}_roster.csv"
+
+    # Check if we should load from cache
+    if os.path.exists(cache_file):
+        roster_df = pd.read_csv(cache_file)
+        file_mod_datetime = datetime.fromtimestamp(os.path.getmtime(cache_file))
+    else:
+        file_mod_datetime = datetime.today()
+        load_from_cache = False
+
+    now = datetime.today()
+    age = now - file_mod_datetime
+
+    # Cache is valid for 14 days for current season teams
+    if age.days >= 14 and season >= now.year:
+        load_from_cache = False
+
+    if load_from_cache:
+        return roster_df
+
+    # Scrape the roster from the team page
+    response = _get_webpage(url=url)
+    soup = BeautifulSoup(response.text, features="lxml")
+    
+    # Get school name from page if we don't have it from cache
+    if not school_name:
+        try:
+            school_name = soup.find("div", {"class": "card"}).find("img").get("alt")
+        except Exception:
+            try:
+                school_name = soup.find("div", {"class": "card"}).find("a").text
+                school_name = school_name.rsplit(" ", maxsplit=1)[0]
+            except Exception:
+                school_name = f"Team {team_id}"
+
+    # Get season name
+    try:
+        season_name = (
+            soup.find("select", {"id": "year_list"})
+            .find("option", {"selected": "selected"})
+            .text
+        )
+    except Exception:
+        # Fallback season name format
+        season_name = f"{season}-{str(season+1)[-2:]}"
+
+    # Find the roster table
+    try:
+        table = soup.find("table", {"class": "dataTable small_font"})
+        if table is None:
+            table = soup.find("table", {"class": "dataTable small_font no_padding"})
+        if table is None:
+            # Try finding any table with roster data
+            table = soup.find("table")
+            
+        if table is None:
+            logging.warning(f"Could not find roster table for team {team_id}")
+            return pd.DataFrame()
+
+        table_headers = table.find("thead").find_all("th")
+        table_headers = [x.text.strip() for x in table_headers]
+
+    except Exception as e:
+        logging.error(f"Could not parse roster table headers: {e}")
+        return pd.DataFrame()
+
+    # Parse roster rows
+    try:
+        tbody = table.find("tbody")
+        if tbody is None:
+            t_rows = table.find_all("tr")[1:]  # Skip header row
+        else:
+            t_rows = tbody.find_all("tr")
+
+        for t in t_rows:
+            t_cells = t.find_all("td")
+            if len(t_cells) == 0:
+                continue
+                
+            t_cells_text = [x.text.strip() for x in t_cells]
+
+            # Skip empty rows or header rows
+            if len(t_cells_text) == 0 or all(cell == "" for cell in t_cells_text):
+                continue
+
+            temp_df = pd.DataFrame(
+                data=[t_cells_text],
+                columns=table_headers[:len(t_cells_text)],  # Handle mismatched column counts
+            )
+
+            # Get player ID and URL from the link
+            try:
+                player_link = t.find("a")
+                if player_link:
+                    player_href = player_link.get("href")
+                    temp_df["player_url"] = f"https://stats.ncaa.org{player_href}"
+                    
+                    # Extract player ID from URL
+                    player_id = player_href.replace("/players", "").replace("/", "")
+                    player_id = int(player_id)
+                    temp_df["player_id"] = player_id
+                else:
+                    temp_df["player_url"] = None
+                    temp_df["player_id"] = None
+            except (ValueError, AttributeError):
+                temp_df["player_url"] = None
+                temp_df["player_id"] = None
+
+            roster_df_arr.append(temp_df)
+
+    except Exception as e:
+        logging.error(f"Could not parse roster table rows: {e}")
+        return pd.DataFrame()
+
+    if not roster_df_arr:
+        logging.warning(f"No roster data found for team {team_id}")
+        return pd.DataFrame()
+
+    # Combine all player rows
+    roster_df = pd.concat(roster_df_arr, ignore_index=True)
+    roster_df = roster_df.infer_objects()
+
+    # Add team metadata
+    roster_df["season"] = season
+    roster_df["season_name"] = season_name
+    roster_df["ncaa_division"] = ncaa_division
+    roster_df["ncaa_division_formatted"] = ncaa_division_formatted
+    roster_df["team_conference_name"] = team_conference_name
+    roster_df["school_id"] = school_id
+    roster_df["school_name"] = school_name
+    roster_df["sport_id"] = sport_id
+
+    # Standardize column names to match expected format
+    column_mapping = {
+        "GP": "player_G",
+        "GS": "player_GS", 
+        "G": "player_G",
+        "#": "player_jersey_num",
+        "No.": "player_jersey_num",
+        "Jersey": "player_jersey_num",
+        "Name": "player_full_name",
+        "Player": "player_full_name",
+        "Class": "player_class",
+        "Cl": "player_class",
+        "Year": "player_class",
+        "Position": "player_positions",
+        "Pos": "player_positions",
+        "Height": "player_height_string",
+        "Ht": "player_height_string",
+        "Weight": "player_weight",
+        "Wt": "player_weight",
+        "Hometown": "player_hometown",
+        "Home Town": "player_hometown",
+        "High School": "player_high_school",
+        "Previous School": "player_high_school",
+        "Prev School": "player_high_school",
+    }
+    
+    roster_df.rename(columns=column_mapping, inplace=True)
+
+    # Split full name into first and last name
+    if "player_full_name" in roster_df.columns:
+        name_split = roster_df["player_full_name"].str.split(" ", n=1, expand=True)
+        if name_split.shape[1] >= 2:
+            roster_df["player_first_name"] = name_split[0]
+            roster_df["player_last_name"] = name_split[1]
+        else:
+            roster_df["player_first_name"] = name_split[0]
+            roster_df["player_last_name"] = ""
+
+    # Ensure all expected columns exist with proper defaults
+    for col in stat_columns:
+        if col not in roster_df.columns:
+            if col in ["player_G", "player_GS", "player_weight"]:
+                roster_df[col] = None  # Numeric columns
+            else:
+                roster_df[col] = ""  # String columns
+
+    # Validate columns and reorder
+    final_columns = []
+    for col in stat_columns:
+        if col in roster_df.columns:
+            final_columns.append(col)
+        else:
+            logging.warning(f"Expected column {col} not found in roster data")
+
+    # Only keep expected columns
+    roster_df = roster_df.reindex(columns=final_columns)
+    roster_df = roster_df.infer_objects()
+
+    # Save to cache
+    roster_df.to_csv(cache_file, index=False)
+
+    return roster_df
 
 def get_soccer_player_season_stats(
     team_id: int,
