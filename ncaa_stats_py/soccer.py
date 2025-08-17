@@ -485,7 +485,8 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 		load_from_cache = False
 	if load_from_cache is True:
 		return games_df
-
+	
+	response = _get_webpage(url=url)
 	soup = BeautifulSoup(response.text, features="lxml")
 	# Find the schedule table (try to match lacrosse logic)
 	table = None
