@@ -488,11 +488,17 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 
 	try:
 		response = _get_webpage(url, wait_for_selector='table')
-		if not response or not response.text:
-			logging.warning("Failed to render team page with Playwright")
+		if not response:
+			logging.error(f"_get_webpage returned None for url: {url}")
 			return games_df
-	except Exception:
-		logging.warning("Failed to fetch team page")
+		if hasattr(response, 'status_code'):
+			logging.info(f"Response status code: {response.status_code}")
+		if not response.text:
+			logging.error(f"_get_webpage returned empty text for url: {url}")
+			return games_df
+	except Exception as e:
+		import traceback
+		logging.error(f"Exception in _get_webpage for url {url}: {e}\n{traceback.format_exc()}")
 		return games_df
 
 	soup = BeautifulSoup(response.text, features="lxml")
