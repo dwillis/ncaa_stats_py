@@ -89,26 +89,16 @@ def get_soccer_teams(
 	else:
 		raise ValueError("Invalid 'level' parameter for get_soccer_teams")
 
-	# Ensure cache directories exist
-	if exists(f"{home_dir}/.ncaa_stats_py/"):
-		pass
-	else:
-		mkdir(f"{home_dir}/.ncaa_stats_py/")
+	# Ensure cache directories exist (using os.makedirs for robustness)
+	import os
+	base_cache_dir = f"{home_dir}/.ncaa_stats_py"
+	soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
+	teams_cache_dir = f"{soccer_cache_dir}/teams"
+	for d in [base_cache_dir, soccer_cache_dir, teams_cache_dir]:
+		if not os.path.exists(d):
+			os.makedirs(d)
 
-	if exists(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/"):
-		pass
-	else:
-		mkdir(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/")
-
-	if exists(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/teams/"):
-		pass
-	else:
-		mkdir(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/teams/")
-
-	cache_file = (
-		f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/teams/"
-		+ f"{season}_{formatted_level}_teams.csv"
-	)
+	cache_file = f"{teams_cache_dir}/{season}_{formatted_level}_teams.csv"
 
 	if exists(cache_file):
 		teams_df = pd.read_csv(cache_file)
@@ -398,6 +388,10 @@ def get_soccer_teams(
 	teams_df = teams_df.drop_duplicates(subset=["season", "team_id"]).copy()
 	teams_df.sort_values(by=["team_id"], inplace=True)
 
+	# Ensure the teams cache directory exists before writing
+	teams_cache_dir = os.path.dirname(cache_file)
+	if not os.path.exists(teams_cache_dir):
+		os.makedirs(teams_cache_dir)
 	teams_df.to_csv(cache_file, index=False)
 
 	return teams_df
@@ -486,8 +480,13 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 		# join school ids
 		temp_df = schools_df.rename(columns={"school_name": "opponent", "school_id": "opponent_school_id"})
 		games_df = games_df.merge(right=temp_df, on="opponent", how="left")
+		# Ensure the team_schedule directory exists
+		import os
+		schedule_dir = f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule"
+		if not os.path.exists(schedule_dir):
+			os.makedirs(schedule_dir)
 		games_df.to_csv(
-			f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule/{team_id}_team_schedule.csv",
+			f"{schedule_dir}/{team_id}_team_schedule.csv",
 			index=False,
 		)
 
