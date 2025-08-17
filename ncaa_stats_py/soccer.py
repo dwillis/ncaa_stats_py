@@ -1789,8 +1789,581 @@ def get_soccer_team_stats(
     level: str | int = "I",
     get_womens_soccer_data: bool = False
 ) -> pd.DataFrame:
-    pass
+    """
+    Retrieves team statistics for NCAA soccer teams from the institution trends page,
+    including both regular team stats, goalkeeping statistics, and win/loss records.
 
+    Parameters
+    ----------
+    `season` (int, mandatory):
+        Required argument.
+        Specifies the season you want NCAA soccer team statistics from.
+
+    `level` (str | int, optional):
+        Optional argument (default: "I").
+        Specifies the level/division you want
+        NCAA soccer team statistics from.
+        This can either be an integer (1-3) or a string ("I"-"III").
+
+    `get_womens_soccer_data` (bool, optional):
+        Optional argument (default: False).
+        If you want women's soccer data instead of men's soccer data,
+        set this to `True`.
+
+    Usage
+    ----------
+    ```python
+
+    from ncaa_stats_py.soccer import get_soccer_team_stats
+
+    ########################################
+    #          Men's soccer                #
+    ########################################
+
+    # Get all D1 men's soccer team statistics for the 2024 season.
+    print("Get all D1 men's soccer team statistics for the 2024 season.")
+    df = get_soccer_team_stats(2024, 1)
+    print(df)
+
+    # Get all D3 men's soccer team statistics for the 2023 season.
+    print("Get all D3 men's soccer team statistics for the 2023 season.")
+    df = get_soccer_team_stats(2023, 3)
+    print(df)
+
+    ########################################
+    #          Women's soccer              #
+    ########################################
+
+    # Get all D1 women's soccer team statistics for the 2024 season.
+    print("Get all D1 women's soccer team statistics for the 2024 season.")
+    df = get_soccer_team_stats(2024, 1, get_womens_soccer_data=True)
+    print(df)
+
+    # Get all D3 women's soccer team statistics for the 2023 season.
+    print("Get all D3 women's soccer team statistics for the 2023 season.")
+    df = get_soccer_team_stats(2023, 3, get_womens_soccer_data=True)
+    print(df)
+
+    ```
+
+    Returns
+    ----------
+    A pandas `DataFrame` object with comprehensive team statistics (including goalkeeping and win/loss records) 
+    for college soccer teams in that season and NCAA level.
+    """
+    sport_id = "WSO" if get_womens_soccer_data else "MSO"
+    load_from_cache = True
+    home_dir = expanduser("~")
+    home_dir = _format_folder_str(home_dir)
+    stats_df = pd.DataFrame()
+    stats_df_arr = []
+    temp_df = pd.DataFrame()
+    formatted_level = ""
+    ncaa_level = 0
+
+    # Parse level parameter
+    if isinstance(level, int) and level == 1:
+        formatted_level = "I"
+        ncaa_level = 1
+    elif isinstance(level, int) and level == 2:
+        formatted_level = "II"
+        ncaa_level = 2
+    elif isinstance(level, int) and level == 3:
+        formatted_level = "III"
+        ncaa_level = 3
+    elif isinstance(level, str) and (
+        level.lower() in {"i", "d1", "1"}
+    ):
+        ncaa_level = 1
+        formatted_level = "I"
+    elif isinstance(level, str) and (
+        level.lower() in {"ii", "d2", "2"}
+    ):
+        ncaa_level = 2
+        formatted_level = "II"
+    elif isinstance(level, str) and (
+        level.lower() in {"iii", "d3", "3"}
+    ):
+        ncaa_level = 3
+        formatted_level = "III"
+    else:
+        raise ValueError(
+            f"Improper input for `level`: `{level}`.\n"
+            + "Valid inputs are (but not limited to) "
+            + '`1`, "I", `2`, "II", `3`, and "III".'
+        )
+
+    # Create cache directories
+    import os
+    base_cache_dir = f"{home_dir}/.ncaa_stats_py"
+    soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
+    stats_cache_dir = f"{soccer_cache_dir}/team_stats"
+    
+    for d in [base_cache_dir, soccer_cache_dir, stats_cache_dir]:
+        if not os.path.exists(d):
+            os.makedirs(d)
+
+    # Check for cached data
+    cache_file = f"{stats_cache_dir}/{season}_{formatted_level}_team_stats.csv"
+    
+    if os.path.exists(cache_file):
+        stats_df = pd.read_csv(cache_file)
+        file_mod_datetime = datetime.fromtimestamp(os.path.getmtime(cache_file))
+    else:
+        file_mod_datetime = datetime.today()
+        load_from_cache = False
+
+    now = datetime.today()
+    age = now - file_mod_datetime
+
+    # Cache invalidation logic
+    if (
+        age.days > 1 and
+        season >= now.year and
+        now.month <= 7
+    ):
+        load_from_cache = False
+    elif (
+        age.days >= 14 and
+        season >= (now.year - 1) and
+        now.month <= 7
+    ):
+        load_from_cache = False
+    elif age.days >= 35:
+        load_from_cache = False
+
+    if load_from_cache:
+        return stats_df
+
+    logging.warning(
+        f"Either we could not load {season} D{level} team statistics from cache, "
+        + "or it's time to refresh the cached data."
+    )
+
+    # Get schools data for merging
+    schools_df = _get_schools()
+    
+    # First, get the teams to ensure we have valid data
+    teams_df = get_soccer_teams(season, level, get_womens_soccer_data)
+    if teams_df.empty:
+        logging.warning(f"No teams found for {season} season, level {level}")
+        return pd.DataFrame()
+
+    # Get the correct stat IDs from utls based on season and sport
+    sport_key = "womens_soccer" if get_womens_soccer_data else "mens_soccer"
+    
+    try:
+        goalie_stat_category_id = _get_stat_id(sport_key, season, "goalkeepers")
+        regular_stat_category_id = _get_stat_id(sport_key, season, "non_goalkeepers")
+        season_stat_id = _get_stat_id(sport_key, season, "team")
+    except LookupError as e:
+        logging.warning(f"Could not find stat IDs for {sport_key} season {season}: {e}")
+        # Fall back to default values if stat IDs not found
+        if get_womens_soccer_data:
+            season_stat_id = 56
+            goalie_stat_category_id = 57
+            regular_stat_category_id = 58
+        else:
+            season_stat_id = 30
+            goalie_stat_category_id = 31
+            regular_stat_category_id = 32
+
+    # Build the URL to get ranking periods
+    url = (
+        "https://stats.ncaa.org/rankings/change_sport_year_div?"
+        + f"academic_year={season + 1}.0&division={ncaa_level}.0"
+        + f"&sport_code={sport_id}"
+    )
+
+    response = _get_webpage(url=url)
+    soup = BeautifulSoup(response.text, features="lxml")
+    
+    # Find the ranking periods
+    ranking_periods_temp = soup.find("select", {"name": "rp", "id": "rp"})
+    if ranking_periods_temp:
+        ranking_periods = ranking_periods_temp.find_all("option")
+        rp_value = 0
+        found_value = False
+
+        # Get the final ranking period (or most recent)
+        for rp in ranking_periods:
+            if "championship" in rp.text.lower():
+                continue
+            elif "final" in rp.text.lower():
+                rp_value = rp.get("value")
+                found_value = True
+                break
+            else:
+                rp_value = rp.get("value")
+                found_value = True
+                
+        if not found_value and ranking_periods:
+            rp_value = ranking_periods[-1].get("value")
+    else:
+        rp_value = 0
+
+    # Helper function to extract win/loss records from team page
+    def get_team_records(team_id):
+        """Extract win/loss records from individual team page"""
+        team_url = f"https://stats.ncaa.org/teams/{team_id}"
+        
+        try:
+            response = _get_webpage(url=team_url)
+            soup = BeautifulSoup(response.text, features="lxml")
+            
+            # Initialize record variables
+            overall_wins = 0
+            overall_losses = 0
+            overall_ties = 0
+            conference_wins = 0
+            conference_losses = 0
+            conference_ties = 0
+            home_wins = 0
+            home_losses = 0
+            home_ties = 0
+            road_wins = 0
+            road_losses = 0
+            road_ties = 0
+            neutral_wins = 0
+            neutral_losses = 0
+            neutral_ties = 0
+            
+            logging.debug(f"Processing team records for team_id: {team_id}")
+            
+            # Look for the Season-to-date Records section
+            records_header = soup.find("div", class_="card-header", string="Season-to-date Records")
+            
+            if records_header:
+                # Get the card body that follows this header
+                records_card_body = records_header.find_next_sibling("div", class_="card-body")
+                
+                if records_card_body:
+                    # Find all the individual record cards within the card body
+                    record_cards = records_card_body.find_all("div", class_="card")
+                    
+                    logging.debug(f"Found {len(record_cards)} record cards for team {team_id}")
+                    
+                    for card in record_cards:
+                        # Get the header for this specific record type
+                        card_header = card.find("div", class_="card-header")
+                        card_body = card.find("div", class_="card-body")
+                        
+                        if card_header and card_body:
+                            record_type = card_header.text.strip().lower()
+                            logging.debug(f"Processing record type: {record_type}")
+                            
+                            # Look for spans containing the record
+                            record_spans = card_body.find_all("span")
+                            
+                            for span in record_spans:
+                                span_text = span.text.strip()
+                                logging.debug(f"Found span text: '{span_text}' for record type: {record_type}")
+                                
+                                # Look for the pattern "X-Y-Z (percentage)" or "X-Y (percentage)" for soccer
+                                if "-" in span_text and not span_text.startswith("Streak"):
+                                    # Extract the wins-losses-ties part (before parentheses if present)
+                                    if "(" in span_text:
+                                        record_part = span_text.split("(")[0].strip()
+                                    else:
+                                        record_part = span_text.strip()
+                                    
+                                    if "-" in record_part:
+                                        try:
+                                            record_components = record_part.split("-")
+                                            wins = int(record_components[0].strip())
+                                            losses = int(record_components[1].strip())
+                                            ties = int(record_components[2].strip()) if len(record_components) > 2 else 0
+                                            
+                                            logging.debug(f"Parsed {record_type}: {wins}-{losses}-{ties}")
+                                            
+                                            # Assign to appropriate variables based on record type
+                                            if record_type == "overall":
+                                                overall_wins = wins
+                                                overall_losses = losses
+                                                overall_ties = ties
+                                            elif record_type == "conference":
+                                                conference_wins = wins
+                                                conference_losses = losses
+                                                conference_ties = ties
+                                            elif record_type == "home":
+                                                home_wins = wins
+                                                home_losses = losses
+                                                home_ties = ties
+                                            elif record_type == "road":
+                                                road_wins = wins
+                                                road_losses = losses
+                                                road_ties = ties
+                                            elif record_type == "neutral":
+                                                neutral_wins = wins
+                                                neutral_losses = losses
+                                                neutral_ties = ties
+                                            
+                                            break  # Found the record, move to next card
+                                            
+                                        except (ValueError, IndexError) as ve:
+                                            logging.warning(f"Error parsing wins/losses/ties from '{record_part}': {ve}")
+                                            continue
+                else:
+                    logging.debug(f"Could not find card-body for Season-to-date Records for team {team_id}")
+            else:
+                logging.debug(f"Could not find Season-to-date Records header for team {team_id}")
+            
+            result = {
+                "overall_wins": overall_wins,
+                "overall_losses": overall_losses,
+                "overall_ties": overall_ties,
+                "conference_wins": conference_wins,
+                "conference_losses": conference_losses,
+                "conference_ties": conference_ties,
+                "home_wins": home_wins,
+                "home_losses": home_losses,
+                "home_ties": home_ties,
+                "road_wins": road_wins,
+                "road_losses": road_losses,
+                "road_ties": road_ties,
+                "neutral_wins": neutral_wins,
+                "neutral_losses": neutral_losses,
+                "neutral_ties": neutral_ties
+            }
+            
+            logging.debug(f"Final results for team {team_id}: {result}")
+            return result
+            
+        except Exception as e:
+            logging.error(f"Error getting records for team {team_id}: {e}")
+            return {
+                "overall_wins": 0,
+                "overall_losses": 0,
+                "overall_ties": 0,
+                "conference_wins": 0,
+                "conference_losses": 0,
+                "conference_ties": 0,
+                "home_wins": 0,
+                "home_losses": 0,
+                "home_ties": 0,
+                "road_wins": 0,
+                "road_losses": 0,
+                "road_ties": 0,
+                "neutral_wins": 0,
+                "neutral_losses": 0,
+                "neutral_ties": 0
+            }
+
+    # Helper function to scrape statistics table
+    def scrape_stats_table(url, table_type="regular"):
+        try:
+            response = _get_webpage(url=url)
+        except Exception as e:
+            logging.info(f"Found exception when loading {table_type} stats `{e}`")
+            return pd.DataFrame()
+
+        soup = BeautifulSoup(response.text, features="lxml")
+
+        # Find the statistics table
+        table = soup.find("table", {"id": "stat_grid"})
+        if table is None:
+            logging.warning(f"Could not find {table_type} statistics table")
+            return pd.DataFrame()
+
+        # Get table headers
+        thead = table.find("thead")
+        if thead:
+            header_row = thead.find("tr")
+            headers = [th.text.strip() for th in header_row.find_all("th")]
+        else:
+            logging.warning(f"Could not find {table_type} table headers")
+            return pd.DataFrame()
+
+        # Get table body
+        tbody = table.find("tbody")
+        if tbody is None:
+            logging.warning(f"Could not find {table_type} table body")
+            return pd.DataFrame()
+
+        t_rows = tbody.find_all("tr", {"class": "text"})
+        table_data = []
+
+        for row in t_rows:
+            cells = row.find_all("td")
+            
+            # Extract team ID and name from the first cell
+            first_cell = cells[0]
+            team_link = first_cell.find("a")
+            if team_link:
+                team_href = team_link.get("href")
+                if "/teams/" in team_href:
+                    team_id = team_href.replace("/teams/", "")
+                    team_id = int(team_id)
+                    team_name = team_link.text.strip()
+                else:
+                    continue
+            else:
+                continue  # Skip rows without team links
+
+            # Extract all cell data
+            row_data = []
+            for i, cell in enumerate(cells):
+                if i == 0:  # Institution name
+                    row_data.append(team_name)
+                else:
+                    # Get the data-order attribute if available (contains numeric values)
+                    data_order = cell.get("data-order")
+                    if data_order and data_order != "-":
+                        try:
+                            # Handle time format (e.g., "90:00" for minutes)
+                            if ":" in data_order:
+                                row_data.append(data_order)
+                            elif "." in data_order:
+                                row_data.append(float(data_order))
+                            else:
+                                row_data.append(int(data_order))
+                        except ValueError:
+                            row_data.append(data_order)
+                    else:
+                        # Fall back to text content
+                        text_content = cell.text.strip()
+                        if text_content == "" or text_content == "-":
+                            row_data.append(None)
+                        else:
+                            row_data.append(text_content)
+
+            # Get win/loss records for this team
+            team_records = get_team_records(team_id)
+
+            # Create DataFrame row
+            temp_df = pd.DataFrame([row_data], columns=headers)
+            temp_df["team_id"] = team_id
+            temp_df["season"] = season
+            temp_df["ncaa_division"] = ncaa_level
+            temp_df["ncaa_division_formatted"] = formatted_level
+            temp_df["sport_id"] = sport_id
+            
+            # Add win/loss record columns
+            for key, value in team_records.items():
+                temp_df[key] = value
+            
+            table_data.append(temp_df)
+
+        if table_data:
+            return pd.concat(table_data, ignore_index=True)
+        else:
+            return pd.DataFrame()
+
+    # Get regular team statistics using the correct stat ID
+    regular_stats_url = (
+        "https://stats.ncaa.org/rankings/institution_trends?"
+        + f"division={ncaa_level}.0&id={season_stat_id}"
+        + f"&year_stat_category_id={regular_stat_category_id}"
+    )
+    
+    regular_stats_df = scrape_stats_table(regular_stats_url, "regular")
+    
+    # Get goalkeeping statistics using the correct stat IDs
+    goalie_stats_url = (
+        "https://stats.ncaa.org/rankings/institution_trends?"
+        + f"division={ncaa_level}.0&id={season_stat_id}"
+        + f"&year_stat_category_id={goalie_stat_category_id}"
+    )
+    
+    goalie_stats_df = scrape_stats_table(goalie_stats_url, "goalkeeping")
+    
+    # Merge the dataframes
+    if not regular_stats_df.empty and not goalie_stats_df.empty:
+        # Rename goalkeeping columns to avoid conflicts
+        goalie_rename_map = {}
+        for col in goalie_stats_df.columns:
+            if col not in ["team_id", "season", "ncaa_division", "ncaa_division_formatted", "sport_id", "Institution", "Conference"]:
+                if not col.startswith("overall_") and not col.startswith("conference_") and not col.startswith("home_") and not col.startswith("road_") and not col.startswith("neutral_"):
+                    goalie_rename_map[col] = f"goalie_{col.lower().replace(' ', '_')}"
+        
+        # Rename columns in goalkeeping dataframe
+        goalie_stats_df = goalie_stats_df.rename(columns=goalie_rename_map)
+        
+        # Merge on team_id
+        merge_columns = ["team_id", "season", "ncaa_division", "ncaa_division_formatted", "sport_id"]
+        
+        stats_df = pd.merge(
+            regular_stats_df, 
+            goalie_stats_df, 
+            on=merge_columns, 
+            how="left",
+            suffixes=('', '_goalie')
+        )
+        
+        # Drop duplicate columns from the merge
+        duplicate_cols = [col for col in stats_df.columns if col.endswith('_goalie') and col.replace('_goalie', '') in stats_df.columns]
+        stats_df = stats_df.drop(columns=duplicate_cols)
+        
+    elif not regular_stats_df.empty:
+        stats_df = regular_stats_df
+    elif not goalie_stats_df.empty:
+        stats_df = goalie_stats_df
+    else:
+        logging.warning("No team statistics data found")
+        return pd.DataFrame()
+
+    # Add to stats_df_arr for processing
+    stats_df_arr.append(stats_df)
+
+    if not stats_df_arr:
+        logging.warning("No team statistics data found")
+        return pd.DataFrame()
+
+    # Combine all rows
+    final_stats_df = pd.concat(stats_df_arr, ignore_index=True)
+    
+    # Merge with schools data for additional school information
+    final_stats_df = pd.merge(
+        left=final_stats_df,
+        right=schools_df,
+        left_on="Institution",
+        right_on="school_name",
+        how="left"
+    )
+    
+    # Drop duplicate columns from the merge
+    if "school_name_y" in final_stats_df.columns:
+        final_stats_df = final_stats_df.drop(columns=["school_name_y"])
+    elif "school_name" in final_stats_df.columns and "Institution" in final_stats_df.columns:
+        final_stats_df = final_stats_df.drop(columns=["school_name"])
+    
+    # Clean up column names to be more descriptive for soccer
+    column_mapping = {
+        "Institution": "school_name",
+        "Conference": "conference_name",
+        "Games": "games_played",
+        "GP": "games_played",
+        "Goals": "goals",
+        "Assists": "assists",
+        "Points": "points",
+        "Shots": "shots",
+        "SOG": "shots_on_goal",
+        "SH%": "shot_percentage",
+        "Fouls": "fouls",
+        "Yellow Cards": "yellow_cards",
+        "Red Cards": "red_cards",
+        "Corners": "corner_kicks",
+        "Saves": "saves",
+        "GAA": "goals_against_average",
+        "Save%": "save_percentage",
+        "Shutouts": "shutouts",
+        "Goals Against": "goals_against",
+        "Minutes": "minutes_played",
+        "Win%": "win_percentage"
+    }
+    
+    # Rename columns if they exist
+    for old_name, new_name in column_mapping.items():
+        if old_name in final_stats_df.columns:
+            final_stats_df.rename(columns={old_name: new_name}, inplace=True)
+
+    # Sort by team_id
+    final_stats_df.sort_values(by=["team_id"], inplace=True)
+
+    # Save to cache
+    final_stats_df.to_csv(cache_file, index=False)
+
+    return final_stats_df
 
 if __name__ == "__main__":
     pass
