@@ -761,6 +761,9 @@ def _stat_id_dict() -> dict:
             2022: {"season": 2022, "goalkeepers": 15447, "non_goalkeepers": 15446, "team": 16020},
             2021: {"season": 2021, "goalkeepers": 15449, "non_goalkeepers": 15448, "team": 15780},
             2020: {"season": 2020, "goalkeepers": 15451, "non_goalkeepers": 15450, "team": 15301},
+            2019: {"season": 2019, "goalkeepers": 15453, "non_goalkeepers": 15452, "team": 14940},
+            2018: {"season": 2018, "goalkeepers": 15455, "non_goalkeepers": 15454, "team": 14082},
+            2017: {"season": 2017, "goalkeepers": 15457, "non_goalkeepers": 15456, "team": 12640},
         }
     }
     return stat_id_dict
