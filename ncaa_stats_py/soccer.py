@@ -152,13 +152,13 @@ def get_soccer_teams(
     
     change_url = (
         "https://stats.ncaa.org/rankings/change_sport_year_div?"
-        + f"academic_year={season}.0&division={ncaa_level}.0"
+        + f"academic_year={season + 1}.0&division={ncaa_level}.0"
         + f"&sport_code={sport_code}"
     )
 
     inst_url = (
         "https://stats.ncaa.org/rankings/institution_trends?"
-        + f"academic_year={season}.0&division={ncaa_level}.0&"
+        + f"academic_year={season + 1}.0&division={ncaa_level}.0&"
         + f"ranking_period=0&sport_code={sport_code}"
         + f"&stat_seq={stat_sequence}"
     )
