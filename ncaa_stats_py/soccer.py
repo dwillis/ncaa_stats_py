@@ -885,10 +885,442 @@ def get_soccer_day_schedule(
     game_date: str | date | datetime,
     level: str | int = "I",
     get_womens_soccer_data: bool = False
-):
-    # Placeholder: implement similar to lacrosse.get_lacrosse_day_schedule
-    pass
+) -> pd.DataFrame:
+    """
+    Given a date and NCAA level, this function retrieves every soccer game
+    for that date.
 
+    Parameters
+    ----------
+    `game_date` (str | date | datetime, mandatory):
+        Required argument.
+        Specifies the date you want a soccer schedule from.
+        For best results, pass a string formatted as "YYYY-MM-DD".
+
+    `level` (str | int, optional):
+        Optional argument (default: "I").
+        Specifies the level/division you want a
+        NCAA soccer schedule from.
+        This can either be an integer (1-3) or a string ("I"-"III").
+
+    `get_womens_soccer_data` (bool, optional):
+        Optional argument (default: False).
+        If you want women's soccer data instead of men's soccer data,
+        set this to `True`.
+
+    Usage
+    ----------
+    ```python
+
+    from ncaa_stats_py.soccer import get_soccer_day_schedule
+
+    ###########################################
+    #              Men's soccer               #
+    ###########################################
+
+    # Get all DI games that will be played on September 8th, 2025.
+    print("Get all games that will be played on September 8th, 2025.")
+    df = get_soccer_day_schedule("2025-09-08", level=1)
+    print(df)
+
+    # Get all division III games will be played on October 15th, 2025.
+    print("Get all division III games will be played on October 15th, 2025.")
+    df = get_soccer_day_schedule("2025-10-15", level="III")
+    print(df)
+
+    # Get all DI games that were played on November 27th, 2024.
+    print("Get all games that were played on November 27th, 2024.")
+    df = get_soccer_day_schedule("2024-11-27", level="I")
+    print(df)
+
+    # Get all DI games (if any) that were played on September 23rd, 2024.
+    print("Get all DI games (if any) that were played on September 23rd, 2024.")
+    df = get_soccer_day_schedule("2024-09-23")
+    print(df)
+
+    # Get all DIII games played on October 9th, 2024.
+    print("Get all DIII games played on October 9th, 2024.")
+    df = get_soccer_day_schedule("2024-10-09", level="III")
+    print(df)
+
+    ###########################################
+    #             Women's soccer              #
+    ###########################################
+
+    # Get all DI games that will be played on September 8th, 2025.
+    print("Get all games that will be played on September 8th, 2025.")
+    df = get_soccer_day_schedule(
+        "2025-09-08", level=1, get_womens_soccer_data=True
+    )
+    print(df)
+
+    # Get all division III games will be played on October 15th, 2025.
+    print("Get all division III games will be played on October 15th, 2025.")
+    df = get_soccer_day_schedule(
+        "2025-10-15", level="III", get_womens_soccer_data=True
+    )
+    print(df)
+
+    # Get all DI games that were played on November 27th, 2024.
+    print("Get all games that were played on November 27th, 2024.")
+    df = get_soccer_day_schedule(
+        "2024-11-27", level="I", get_womens_soccer_data=True
+    )
+    print(df)
+
+    ```
+
+    Returns
+    ----------
+    A pandas `DataFrame` object with all soccer games played on that day,
+    for that NCAA division/level.
+
+    """
+    from dateutil import parser
+    from pytz import timezone
+    
+    season = 0
+    sport_id = "MSO"
+
+    schedule_df = pd.DataFrame()
+    schedule_df_arr = []
+
+    # Parse the input date
+    if isinstance(game_date, date):
+        game_datetime = datetime.combine(
+            game_date, datetime.min.time()
+        )
+    elif isinstance(game_date, datetime):
+        game_datetime = game_date
+    elif isinstance(game_date, str):
+        game_datetime = parser.parse(game_date)
+    else:
+        unhandled_datatype = type(game_date)
+        raise ValueError(
+            f"Unhandled datatype for `game_date`: `{unhandled_datatype}`"
+        )
+
+    # Parse the level parameter
+    if isinstance(level, int) and level == 1:
+        formatted_level = "I"
+        ncaa_level = 1
+    elif isinstance(level, int) and level == 2:
+        formatted_level = "II"
+        ncaa_level = 2
+    elif isinstance(level, int) and level == 3:
+        formatted_level = "III"
+        ncaa_level = 3
+    elif isinstance(level, str) and (
+        level.lower() in {"i", "d1", "1"}
+    ):
+        ncaa_level = 1
+        formatted_level = "I"
+    elif isinstance(level, str) and (
+        level.lower() in {"ii", "d2", "2"}
+    ):
+        ncaa_level = 2
+        formatted_level = "II"
+    elif isinstance(level, str) and (
+        level.lower() in {"iii", "d3", "3"}
+    ):
+        ncaa_level = 3
+        formatted_level = "III"
+    else:
+        raise ValueError(f"Invalid 'level' parameter: {level}")
+
+    # Set sport ID based on gender
+    if get_womens_soccer_data is True:
+        sport_id = "WSO"
+    elif get_womens_soccer_data is False:
+        sport_id = "MSO"
+    else:
+        raise ValueError(
+            f"Unhandled value for `get_womens_soccer_data`: `{get_womens_soccer_data}`"
+        )
+
+    # Determine season based on date
+    # Soccer season runs in fall, so academic year calculation differs from spring sports
+    game_month = game_datetime.month
+    game_day = game_datetime.day
+    game_year = game_datetime.year
+
+    # For soccer: August-December games are in academic year starting that year
+    # January-July games are in academic year that started the previous year
+    if game_month >= 8:  # August through December
+        season = game_year + 1  # Academic year 2025-26 for fall 2025 games
+    else:  # January through July
+        season = game_year  # Academic year 2025-26 for spring 2025 games
+
+    # Build URL for NCAA stats scoreboard
+    url = (
+        "https://stats.ncaa.org/contests/" +
+        f"livestream_scoreboards?utf8=%E2%9C%93&sport_code={sport_id}" +
+        f"&academic_year={season}&division={ncaa_level}" +
+        f"&game_date={game_month:02d}%2F{game_day:02d}%2F{game_year}" +
+        "&commit=Submit"
+    )
+
+    response = _get_webpage(url=url)
+    soup = BeautifulSoup(response.text, features="lxml")
+
+    game_boxes = soup.find_all("div", {"class": "table-responsive"})
+
+    for box in game_boxes:
+        game_id = None
+        game_alt_text = None
+        game_num = 1
+        ot_periods = 0
+        
+        table_box = box.find("table")
+        if table_box is None:
+            continue
+            
+        table_rows = table_box.find_all("tr")
+        if len(table_rows) < 2:
+            continue
+
+        # Parse date/attendance from first row
+        try:
+            game_date_str = table_rows[0].find("div", {"class": "col-6 p-0"}).text
+            game_date_str = game_date_str.replace("\n", "").strip()
+            game_date_str = game_date_str.replace("TBA ", "TBA")
+            game_date_str = game_date_str.replace("TBD ", "TBD")
+            game_date_str = game_date_str.replace("PM ", "PM")
+            game_date_str = game_date_str.replace("AM ", "AM")
+            game_date_str = game_date_str.strip()
+        except (AttributeError, IndexError):
+            continue
+
+        try:
+            attendance_str = table_rows[0].find(
+                "div", {"class": "col p-0 text-right"}
+            ).text
+            attendance_str = attendance_str.replace("Attend:", "")
+            attendance_str = attendance_str.replace(",", "")
+            attendance_str = attendance_str.replace("\n", "").strip()
+            
+            if (
+                any(x in attendance_str.lower() for x in ["st", "nd", "rd", "th"]) or
+                "final" in attendance_str.lower() or
+                len(attendance_str) == 0
+            ):
+                attendance_num = None
+            else:
+                try:
+                    attendance_num = int(attendance_str)
+                except ValueError:
+                    attendance_num = None
+        except (AttributeError, IndexError):
+            attendance_num = None
+
+        # Handle game series notation
+        if "(" in game_date_str:
+            game_date_str = game_date_str.replace(")", "")
+            game_date_str, game_num = game_date_str.split("(")
+            game_num = int(game_num)
+
+        # Parse game datetime
+        try:
+            if "TBA" in game_date_str or "TBD" in game_date_str:
+                game_datetime_parsed = datetime.strptime(
+                    game_date_str.split()[0], '%m/%d/%Y'
+                )
+            elif ":" not in game_date_str:
+                game_date_str = game_date_str.replace(" ", "")
+                game_datetime_parsed = datetime.strptime(game_date_str, '%m/%d/%Y')
+            else:
+                game_datetime_parsed = datetime.strptime(
+                    game_date_str, '%m/%d/%Y %I:%M %p'
+                )
+            
+            # Convert to Eastern timezone
+            game_datetime_parsed = game_datetime_parsed.replace(
+                tzinfo=timezone("US/Eastern")
+            )
+        except ValueError:
+            continue
+
+        # Get game alternative text/description
+        try:
+            game_alt_text = table_rows[1].find_all("td")[0].text
+            if game_alt_text is not None and len(game_alt_text) > 0:
+                game_alt_text = game_alt_text.replace("\n", "").strip()
+            if len(game_alt_text) == 0:
+                game_alt_text = None
+        except (AttributeError, IndexError):
+            game_alt_text = None
+
+        # Find game ID from links or row IDs
+        urls_arr = box.find_all("a")
+        for u in urls_arr:
+            url_temp = u.get("href")
+            if url_temp and "contests" in url_temp:
+                game_id = url_temp
+                break
+
+        if game_id is None:
+            for r in range(len(table_rows)):
+                temp = table_rows[r]
+                temp_id = temp.get("id")
+                if temp_id is not None and len(temp_id) > 0:
+                    game_id = temp_id
+                    break
+
+        if game_id is None:
+            continue
+
+        # Clean up game ID
+        game_id = game_id.replace("/contests", "")
+        game_id = game_id.replace("/box_score", "")
+        game_id = game_id.replace("/livestream_scoreboards", "")
+        game_id = game_id.replace("/", "")
+        game_id = game_id.replace("contest_", "")
+        try:
+            game_id = int(game_id)
+        except ValueError:
+            continue
+
+        # Find team rows
+        team_rows = table_box.find_all("tr", {"id": f"contest_{game_id}"})
+        if len(team_rows) < 2:
+            # Try alternative method - look for rows with team data
+            team_rows = []
+            for row in table_rows:
+                if row.find("td") and len(row.find_all("td")) >= 3:
+                    team_rows.append(row)
+            
+            if len(team_rows) < 2:
+                continue
+                
+        away_team_row = team_rows[0]
+        home_team_row = team_rows[1]
+
+        # Parse away team information
+        try:
+            away_td_arr = away_team_row.find_all("td")
+            if len(away_td_arr) < 2:
+                continue
+
+            # Get away team name
+            try:
+                away_team_name = away_td_arr[0].find("img").get("alt")
+            except (AttributeError, IndexError):
+                away_team_name = away_td_arr[1].text if len(away_td_arr) > 1 else away_td_arr[0].text
+            away_team_name = away_team_name.replace("\n", "").strip()
+
+            # Get away team ID
+            try:
+                away_team_link = away_td_arr[1].find("a")
+                if away_team_link:
+                    away_team_id = away_team_link.get("href")
+                    away_team_id = away_team_id.replace("/teams/", "")
+                    away_team_id = int(away_team_id)
+                else:
+                    away_team_id = None
+            except (AttributeError, ValueError, IndexError):
+                away_team_id = None
+
+            # Get away team score
+            away_score = away_td_arr[-1].text.replace("\n", "").replace("\xa0", "").strip()
+            
+            if any(word in away_score.lower() for word in ["canceled", "ppd", "postponed"]):
+                continue
+            
+            # Handle overtime notation in scores
+            if "(" in away_score and "OT" in away_score:
+                score_parts = away_score.split("(")
+                away_score = score_parts[0].strip()
+                ot_text = score_parts[1].replace(")", "").strip()
+                ot_periods = int(re.findall(r'\d+', ot_text)[0]) if re.findall(r'\d+', ot_text) else 1
+
+            try:
+                away_goals_scored = int(away_score) if away_score else 0
+            except ValueError:
+                away_goals_scored = 0
+
+        except (AttributeError, IndexError):
+            continue
+
+        # Parse home team information
+        try:
+            home_td_arr = home_team_row.find_all("td")
+            if len(home_td_arr) < 2:
+                continue
+
+            # Get home team name
+            try:
+                home_team_name = home_td_arr[0].find("img").get("alt")
+            except (AttributeError, IndexError):
+                home_team_name = home_td_arr[1].text if len(home_td_arr) > 1 else home_td_arr[0].text
+            home_team_name = home_team_name.replace("\n", "").strip()
+
+            # Get home team ID
+            try:
+                home_team_link = home_td_arr[1].find("a")
+                if home_team_link:
+                    home_team_id = home_team_link.get("href")
+                    home_team_id = home_team_id.replace("/teams/", "")
+                    home_team_id = int(home_team_id)
+                else:
+                    home_team_id = None
+            except (AttributeError, ValueError, IndexError):
+                home_team_id = None
+
+            # Get home team score
+            home_score = home_td_arr[-1].text.replace("\n", "").replace("\xa0", "").strip()
+            
+            # Handle overtime notation in scores (if not already handled)
+            if "(" in home_score and "OT" in home_score and ot_periods == 0:
+                score_parts = home_score.split("(")
+                home_score = score_parts[0].strip()
+                ot_text = score_parts[1].replace(")", "").strip()
+                ot_periods = int(re.findall(r'\d+', ot_text)[0]) if re.findall(r'\d+', ot_text) else 1
+
+            try:
+                home_goals_scored = int(home_score) if home_score else 0
+            except ValueError:
+                home_goals_scored = 0
+
+        except (AttributeError, IndexError):
+            continue
+
+        # Create DataFrame row for this game
+        temp_df = pd.DataFrame({
+            "season": season,
+            "sport_id": sport_id,
+            "game_date": game_datetime_parsed.strftime("%Y-%m-%d"),
+            "game_datetime": game_datetime_parsed.isoformat(),
+            "game_id": game_id,
+            "game_num": game_num,
+            "ot_periods": ot_periods,
+            "formatted_level": formatted_level,
+            "ncaa_level": ncaa_level,
+            "game_alt_text": game_alt_text,
+            "away_team_id": away_team_id,
+            "away_team_name": away_team_name,
+            "home_team_id": home_team_id,
+            "home_team_name": home_team_name,
+            "home_goals_scored": home_goals_scored,
+            "away_goals_scored": away_goals_scored,
+            "attendance": attendance_num
+        }, index=[0])
+        
+        schedule_df_arr.append(temp_df)
+
+    # Combine all games into a single DataFrame
+    if len(schedule_df_arr) >= 1:
+        schedule_df = pd.concat(schedule_df_arr, ignore_index=True)
+    else:
+        logging.warning(
+            f"Could not find any game(s) for "
+            f"{game_datetime.year:04d}-{game_datetime.month:02d}"
+            f"-{game_datetime.day:02d}. "
+            f"If you believe this is an error, "
+            f"please raise an issue at "
+            f"\n https://github.com/armstjc/ncaa_stats_py/issues \n"
+        )
+        
+    return schedule_df
 
 def get_full_soccer_schedule(
     season: int,
