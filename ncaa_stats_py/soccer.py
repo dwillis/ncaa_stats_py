@@ -515,22 +515,102 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 
     url = f"https://stats.ncaa.org/teams/{team_id}"
 
+    # Try to get team info from cached data, with proper error handling
+    team_info_found = False
+    
     try:
         team_df = load_soccer_teams()
         team_df = team_df[team_df["team_id"] == team_id]
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        sport_id = "MSO"
-    except Exception:
-        team_df = load_soccer_teams(get_womens_soccer_data=True)
-        team_df = team_df[team_df["team_id"] == team_id]
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        sport_id = "WSO"
+        if not team_df.empty:
+            season = team_df["season"].iloc[0]
+            ncaa_division = team_df["ncaa_division"].iloc[0]
+            ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+            sport_id = "MSO"
+            team_info_found = True
+        del team_df
+    except Exception as e:
+        logging.info(f"Could not find team in men's soccer data: {e}")
 
-    del team_df
+    if not team_info_found:
+        try:
+            team_df = load_soccer_teams(get_womens_soccer_data=True)
+            team_df = team_df[team_df["team_id"] == team_id]
+            if not team_df.empty:
+                season = team_df["season"].iloc[0]
+                ncaa_division = team_df["ncaa_division"].iloc[0]
+                ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+                sport_id = "WSO"
+                team_info_found = True
+            del team_df
+        except Exception as e:
+            logging.info(f"Could not find team in women's soccer data: {e}")
+
+    # If team not found in cached data, extract info from the team page directly
+    if not team_info_found:
+        logging.warning(f"Team ID {team_id} not found in cached teams data. Extracting info from team page.")
+        try:
+            # Handle potential asyncio loop conflicts with Playwright
+            import concurrent.futures
+            import threading
+            
+            def get_webpage_in_thread():
+                return _get_webpage(url=url)
+            
+            try:
+                # Check if we're in an asyncio environment
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    # We're in an asyncio loop, run in thread
+                    logging.info("Asyncio loop detected, running webpage request in separate thread")
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(get_webpage_in_thread)
+                        response = future.result(timeout=120)  # 2 minute timeout
+                except RuntimeError:
+                    # No running loop, safe to call directly
+                    response = _get_webpage(url=url)
+            except ImportError:
+                # asyncio not available, call directly
+                response = _get_webpage(url=url)
+            
+            soup = BeautifulSoup(response.text, features="lxml")
+            
+            # Extract season from the year selector
+            season_element = soup.find("select", {"id": "year_list"})
+            if season_element:
+                selected_option = season_element.find("option", {"selected": "selected"})
+                if selected_option:
+                    season_name = selected_option.text
+                    # Convert "2023-24" to 2024 or handle single year formats
+                    if "-" in season_name:
+                        season = int("20" + season_name.split("-")[-1]) if len(season_name.split("-")[-1]) == 2 else int(season_name.split("-")[-1])
+                    else:
+                        season = int(season_name)
+                else:
+                    season = datetime.today().year
+            else:
+                season = datetime.today().year
+            
+            # Try to determine sport from page content
+            page_text = soup.get_text().lower()
+            if "women" in page_text or "wso" in page_text:
+                sport_id = "WSO"
+            else:
+                sport_id = "MSO"  # Default to men's
+            
+            # Default division info
+            ncaa_division = 1
+            ncaa_division_formatted = "I"
+            
+            logging.info(f"Extracted info for team {team_id}: season={season}, sport_id={sport_id}")
+            
+        except Exception as e:
+            logging.error(f"Could not extract team info from page: {e}")
+            # Ultimate fallback
+            season = datetime.today().year
+            sport_id = "MSO"
+            ncaa_division = 1
+            ncaa_division_formatted = "I"
 
     if exists(f"{home_dir}/.ncaa_stats_py/"):
         pass
