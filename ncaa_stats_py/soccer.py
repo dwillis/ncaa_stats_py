@@ -23,177 +23,6 @@ from ncaa_stats_py.utls import (
     _get_webpage,
 )
 
-
-def _playwright_follow_change_to_inst(change_url: str, inst_url: str) -> tuple[str | None, str | None]:
-	"""Use a single Playwright session to visit change_url, pick ranking_period,
-	then navigate to inst_url and return the rendered HTML and chosen rp value.
-	Returns (html, rp_value) or (None, None) on failure.
-	"""
-	if not _has_playwright:
-		return (None, None)
-	try:
-		from playwright.sync_api import sync_playwright
-
-		with sync_playwright() as pw:
-			browser = pw.chromium.launch(headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-			ua = (
-				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-				"AppleWebKit/537.36 (KHTML, like Gecko) "
-				"Chrome/120.0.0.0 Safari/537.36"
-			)
-			context = browser.new_context(user_agent=ua, viewport={"width": 1280, "height": 800}, locale="en-US", extra_http_headers={"Accept-Language": "en-US,en;q=0.9", "Referer": "https://stats.ncaa.org/"})
-			context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-			page = context.new_page()
-			try:
-				try:
-					page.goto('https://stats.ncaa.org/', timeout=30000, wait_until='domcontentloaded')
-				except Exception:
-					pass
-				page.goto(change_url, timeout=60000)
-				try:
-					page.wait_for_selector('select#rp', timeout=30000)
-				except Exception:
-					pass
-
-				rp_value = None
-				try:
-					opts = page.query_selector_all('select#rp option')
-					for o in opts:
-						txt = (o.inner_text() or '').lower()
-						val = o.get_attribute('value')
-						if 'final' in txt and val:
-							rp_value = val
-							break
-					if rp_value is None and opts:
-						rp_value = opts[-1].get_attribute('value')
-				except Exception:
-					rp_value = None
-
-				if rp_value:
-					try:
-						page.select_option('select#rp', str(rp_value))
-						page.evaluate("document.querySelector('select#rp')?.dispatchEvent(new Event('change'))")
-						page.wait_for_timeout(1500)
-					except Exception:
-						pass
-
-				page.goto(inst_url + (f"&ranking_period={rp_value}" if rp_value else ''), timeout=60000)
-				try:
-					page.wait_for_selector('table#stat_grid, table#rankings_table, table', timeout=45000)
-				except Exception:
-					pass
-
-				try:
-					content = page.content()
-				except Exception:
-					content = ''
-			finally:
-				try:
-					browser.close()
-				except Exception:
-					pass
-			return (content, rp_value)
-	except Exception:
-		return (None, None)
-
-
-def _playwright_extract_teams(change_url: str, inst_url: str) -> list[dict] | None:
-	"""Run a headful Playwright session, set rp, navigate to inst_url and
-	extract a structured list of teams (team_id, school_name, team_conf).
-	Returns a list of dicts or None on failure.
-	"""
-	if not _has_playwright:
-		return None
-	try:
-		from playwright.sync_api import sync_playwright
-		with sync_playwright() as pw:
-			browser = pw.chromium.launch(headless=False, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-			ua = (
-				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-				"AppleWebKit/537.36 (KHTML, like Gecko) "
-				"Chrome/120.0.0.0 Safari/537.36"
-			)
-			context = browser.new_context(user_agent=ua, viewport={"width": 1280, "height": 800}, locale="en-US", extra_http_headers={"Accept-Language": "en-US,en;q=0.9", "Referer": "https://stats.ncaa.org/"})
-			context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-			page = context.new_page()
-			try:
-				try:
-					page.goto('https://stats.ncaa.org/', timeout=30000, wait_until='domcontentloaded')
-				except Exception:
-					pass
-				page.goto(change_url, timeout=60000)
-				try:
-					page.wait_for_selector('select#rp', timeout=30000)
-				except Exception:
-					pass
-
-				# pick rp (prefer final)
-				rp_value = None
-				try:
-					opts = page.query_selector_all('select#rp option')
-					for o in opts:
-						txt = (o.inner_text() or '').lower()
-						val = o.get_attribute('value')
-						if 'final' in txt and val:
-							rp_value = val
-							break
-					if rp_value is None and opts:
-						rp_value = opts[-1].get_attribute('value')
-				except Exception:
-					rp_value = None
-
-				if rp_value:
-					try:
-						page.select_option('select#rp', str(rp_value))
-						page.evaluate("document.querySelector('select#rp')?.dispatchEvent(new Event('change'))")
-						page.wait_for_timeout(1500)
-					except Exception:
-						pass
-
-				# navigate to inst page and wait for the rankings table to appear
-				page.goto(inst_url + (f"&ranking_period={rp_value}" if rp_value else ''), timeout=60000)
-				try:
-					page.wait_for_selector('table#stat_grid, table#rankings_table, table', timeout=45000)
-				except Exception:
-					pass
-
-				# query DOM for team anchors inside the stat_grid table
-				teams = []
-				try:
-					rows = page.query_selector_all('table#stat_grid tbody tr')
-					if not rows:
-						rows = page.query_selector_all('table#rankings_table tbody tr')
-					for r in rows:
-						a = r.query_selector('td.sorting_1 a') or r.query_selector('a[href*="/teams/"]')
-						if not a:
-							continue
-						href = a.get_attribute('href')
-						name = a.inner_text().strip()
-						try:
-							tid = int(href.split('/teams/')[1].split('/')[0])
-						except Exception:
-							tid = None
-						# attempt to get conference from second td
-						tds = r.query_selector_all('td')
-						conf = ''
-						if tds and len(tds) > 1:
-							try:
-								conf = tds[1].inner_text().strip()
-							except Exception:
-								conf = ''
-						teams.append({"team_id": tid, "school_name": name, "team_conference_name": conf})
-				except Exception:
-					pass
-			finally:
-				try:
-					browser.close()
-				except Exception:
-					pass
-			return teams
-	except Exception:
-		return None
-
-
 def get_soccer_teams(
 	season: int, level: str | int,
 	get_womens_soccer_data: bool = False
@@ -321,15 +150,6 @@ def get_soccer_teams(
 		+ f"&sport_code={sport_code}"
 	)
 
-	soup = None
-
-	# Use Playwright for all requests as requested
-	if not _has_playwright:
-		raise RuntimeError("Playwright is required to fetch pages for get_soccer_teams but _has_playwright is False")
-
-	# Build the institution_trends URL now (we'll navigate to it from the
-	# same Playwright session after setting the ranking_period on the
-	# change_sport_year_div page).
 	inst_url = (
 		"https://stats.ncaa.org/rankings/institution_trends?"
 		+ f"academic_year={season}&division={ncaa_level}.0&"
@@ -337,50 +157,15 @@ def get_soccer_teams(
 		+ (f"&stat_seq={stat_sequence}" if stat_sequence else "")
 	)
 
-	# Use a single Playwright session to load the change page, pick an rp,
-	# then navigate to the institution_trends page so cookies and client-side
-	# state are preserved.
-	inst_html, chosen_rp = _playwright_follow_change_to_inst(change_url, inst_url)
+	# Use the shared _get_webpage utility for all requests (like lacrosse.py)
+	inst_html = _get_webpage(inst_url)
 	if not inst_html:
-		logging.info("Playwright failed to render the change->inst sequence")
+		logging.info("Failed to fetch institution_trends page")
 		return pd.DataFrame()
 	soup = BeautifulSoup(inst_html, features="lxml")
-	rp_value = chosen_rp
 
 	# Prefer Playwright DOM-extraction for structured rows when possible
-	try:
-		teams_list = _playwright_extract_teams(change_url, inst_url)
-		if teams_list:
-			for t in teams_list:
-				team_id = t.get('team_id')
-				school_name = t.get('school_name')
-				team_conf = t.get('team_conference_name', '')
-				if not school_name:
-					continue
-				temp_df = pd.DataFrame({
-					"season": season,
-					"ncaa_division": ncaa_level,
-					"ncaa_division_formatted": formatted_level,
-					"team_conference_name": team_conf,
-					"team_id": team_id,
-					"school_name": school_name,
-					"sport_id": sport_id,
-				}, index=[0])
-				teams_df_arr.append(temp_df)
-			if teams_df_arr:
-				teams_df = pd.concat(teams_df_arr, ignore_index=True)
-				teams_df = pd.merge(left=teams_df, right=schools_df, on=["school_name"], how="left")
-				teams_df.sort_values(by=["team_id"], inplace=True)
-				teams_df.to_csv(cache_file, index=False)
-				return teams_df
-	except Exception:
-		# fall back to soup-based parsing below
-		pass
-
-	# We already navigated to the institution_trends page in the
-	# single Playwright session and have its HTML in `inst_html`.
-	# `soup` was constructed above from that returned content and will
-	# be used for parsing.
+	# (Removed _playwright_extract_teams; use soup-based parsing only)
 
 	# Try parsing common table layouts used on stats.ncaa.org
 	try:
@@ -659,8 +444,6 @@ def load_soccer_teams(
 def _playwright_fetch(url: str, wait_for: str | None = None) -> str | None:
 	"""Render a URL with Playwright and return page.content() or None on failure.
 	"""
-	if not _has_playwright:
-		return None
 	try:
 		from playwright.sync_api import sync_playwright
 		with sync_playwright() as pw:
