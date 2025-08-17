@@ -1330,7 +1330,6 @@ def get_full_soccer_schedule(
     # Placeholder: implement full season aggregation
     pass
 
-
 def get_soccer_team_roster(
     team_id: int, 
     season: int, 
@@ -1585,26 +1584,47 @@ def get_soccer_team_roster(
             if len(t_cells_text) == 0 or all(cell == "" for cell in t_cells_text):
                 continue
 
-            temp_df = pd.DataFrame(
-                data=[t_cells_text],
-                columns=table_headers[:len(t_cells_text)],  # Handle mismatched column counts
-            )
+            # Handle the specific NCAA soccer roster format
+            # Expected columns: GP, GS, #, Name, Class, Position, Height, Hometown, High School
+            if len(t_cells_text) >= len(table_headers):
+                temp_df = pd.DataFrame(
+                    data=[t_cells_text[:len(table_headers)]],
+                    columns=table_headers
+                )
+            else:
+                # Pad with empty strings if row has fewer cells
+                padded_data = t_cells_text + [""] * (len(table_headers) - len(t_cells_text))
+                temp_df = pd.DataFrame(
+                    data=[padded_data],
+                    columns=table_headers
+                )
 
-            # Get player ID and URL from the link
+            # Get player ID and URL from the link in the Name column
             try:
-                player_link = t.find("a")
-                if player_link:
-                    player_href = player_link.get("href")
-                    temp_df["player_url"] = f"https://stats.ncaa.org{player_href}"
-                    
-                    # Extract player ID from URL
-                    player_id = player_href.replace("/players", "").replace("/", "")
-                    player_id = int(player_id)
-                    temp_df["player_id"] = player_id
+                # Look for the player link in the name cell (usually 4th column, index 3)
+                name_cell = t_cells[3] if len(t_cells) > 3 else None
+                if name_cell:
+                    player_link = name_cell.find("a")
+                    if player_link:
+                        player_href = player_link.get("href")
+                        temp_df["player_url"] = f"https://stats.ncaa.org{player_href}"
+                        
+                        # Extract player ID from URL (/players/10001471 -> 10001471)
+                        player_id = player_href.replace("/players/", "").replace("/", "")
+                        player_id = int(player_id)
+                        temp_df["player_id"] = player_id
+                        
+                        # Also get the clean player name from the link text
+                        player_name = player_link.text.strip()
+                        if player_name:
+                            temp_df["Name"] = player_name
+                    else:
+                        temp_df["player_url"] = None
+                        temp_df["player_id"] = None
                 else:
                     temp_df["player_url"] = None
                     temp_df["player_id"] = None
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, IndexError):
                 temp_df["player_url"] = None
                 temp_df["player_id"] = None
 
@@ -1667,14 +1687,30 @@ def get_soccer_team_roster(
             roster_df["player_first_name"] = name_split[0]
             roster_df["player_last_name"] = name_split[1]
         else:
-            roster_df["player_first_name"] = name_split[0]
+            roster_df["player_first_name"] = name_split[0] if name_split.shape[1] > 0 else ""
             roster_df["player_last_name"] = ""
+    
+    # Convert GP and GS to numeric, handling non-numeric values
+    for col in ["player_G", "player_GS"]:
+        if col in roster_df.columns:
+            roster_df[col] = pd.to_numeric(roster_df[col], errors='coerce')
+
+    # Convert jersey number to numeric
+    if "player_jersey_num" in roster_df.columns:
+        roster_df["player_jersey_num"] = pd.to_numeric(roster_df["player_jersey_num"], errors='coerce')
+
+    # Clean up weight column if present
+    if "player_weight" in roster_df.columns:
+        # Remove non-numeric characters and convert to int
+        roster_df["player_weight"] = roster_df["player_weight"].astype(str).str.extract(r'(\d+)').astype(float)
 
     # Ensure all expected columns exist with proper defaults
     for col in stat_columns:
         if col not in roster_df.columns:
-            if col in ["player_G", "player_GS", "player_weight"]:
+            if col in ["player_G", "player_GS", "player_weight", "player_jersey_num"]:
                 roster_df[col] = None  # Numeric columns
+            elif col == "player_id":
+                roster_df[col] = None  # Keep as None for missing IDs
             else:
                 roster_df[col] = ""  # String columns
 
