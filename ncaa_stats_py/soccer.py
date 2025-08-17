@@ -159,8 +159,8 @@ def get_soccer_teams(
 
 	# Use the shared _get_webpage utility for all requests (like lacrosse.py)
 	inst_html = _get_webpage(inst_url)
-	if not inst_html:
-		logging.info("Failed to fetch institution_trends page")
+	if not isinstance(inst_html, str) or not inst_html.strip():
+		logging.warning("Failed to fetch institution_trends page or got empty content")
 		return pd.DataFrame()
 	soup = BeautifulSoup(inst_html, features="lxml")
 
