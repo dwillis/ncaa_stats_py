@@ -754,6 +754,13 @@ def _stat_id_dict() -> dict:
             2012: {"season": 2012},
             2011: {"season": 2011},
         },
+        "womens_soccer": {
+            2025: {"season": 2025, "goalkeepers": 15728, "non_goalkeepers": 15727, "team": 16900},
+            2024: {"season": 2024, "goalkeepers": 15742, "non_goalkeepers": 15742, "team": 16641},
+            2023: {"season": 2023, "goalkeepers": 15148, "non_goalkeepers": 15147, "team": 16462},
+            2022: {"season": 2022, "goalkeepers": 15447, "non_goalkeepers": 15446, "team": 16020},
+            2021: {"season": 2021, "goalkeepers": 15449, "non_goalkeepers": 15448, "team": 15780},
+        }
     }
     return stat_id_dict
 
