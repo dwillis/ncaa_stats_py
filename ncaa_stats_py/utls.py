@@ -27,6 +27,99 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+from playwright.async_api import async_playwright
+import asyncio
+class AsyncWebPageResponse:
+    def __init__(self, text, status):
+        self.text = text
+        self.status = status
+
+async def _get_webpage_async(url: str, timeout: int = 60000, wait_for_selector: str = None) -> AsyncWebPageResponse:
+    """
+    Async version of _get_webpage using Playwright async API.
+    """
+    rng = SystemRandom()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=[
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-features=TranslateUI',
+            '--disable-ipc-flooding-protection',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
+        ])
+        context = await browser.new_context(
+            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080},
+            locale='en-US',
+            timezone_id='America/New_York',
+            extra_http_headers={
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"macOS"',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
+            }
+        )
+        page = await context.new_page()
+        await page.set_extra_http_headers({'Referer': 'https://www.google.com/'})
+        try:
+            response = await page.goto(url, timeout=timeout, wait_until='domcontentloaded')
+            if response is None:
+                raise ConnectionError(f"Failed to load page: {url}")
+            status = response.status
+            if wait_for_selector:
+                try:
+                    await page.wait_for_selector(wait_for_selector, timeout=10000)
+                except Exception as e:
+                    logging.warning(f"Selector {wait_for_selector} not found: {e}")
+            try:
+                await page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception as e:
+                logging.warning(f"Network idle timeout: {e}")
+            await page.wait_for_timeout(2000)
+            content = await page.content()
+            random_delay = 3 + rng.randint(0, 7)
+            await asyncio.sleep(random_delay)
+            await page.close()
+            await context.close()
+            await browser.close()
+            return AsyncWebPageResponse(content, status)
+        except Exception as e:
+            await page.close()
+            await context.close()
+            await browser.close()
+            logging.error(f"Error loading page {url}: {e}")
+            raise
+
+def _get_webpage_sync_or_async(url: str, timeout: int = 60000, wait_for_selector: str = None, force_async: bool = False):
+    """
+    Helper to call async version if inside an event loop, else sync.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        # If we're here, we're in an event loop, so use async
+        return asyncio.ensure_future(_get_webpage_async(url, timeout, wait_for_selector))
+    except RuntimeError:
+        # Not in event loop, use sync
+        return _get_webpage(url, timeout, wait_for_selector)
 
 
 def _stat_id_dict() -> dict:

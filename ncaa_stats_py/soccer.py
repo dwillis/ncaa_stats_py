@@ -486,8 +486,16 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
 	if load_from_cache is True:
 		return games_df
 
+	import asyncio
+	from ncaa_stats_py.utls import _get_webpage_async
 	try:
-		response = _get_webpage(url, wait_for_selector='table')
+		try:
+			loop = asyncio.get_running_loop()
+			# In event loop: use async
+			response = loop.run_until_complete(_get_webpage_async(url, wait_for_selector='table'))
+		except RuntimeError:
+			# Not in event loop: use sync
+			response = _get_webpage(url, wait_for_selector='table')
 		if not response:
 			logging.error(f"_get_webpage returned None for url: {url}")
 			return games_df
