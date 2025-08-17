@@ -159,13 +159,7 @@ def get_soccer_teams(
 
 	# Use the shared _get_webpage utility for all requests (like lacrosse.py)
 	inst_html = _get_webpage(inst_url)
-	if not isinstance(inst_html, str) or not inst_html.strip():
-		logging.warning("Failed to fetch institution_trends page or got empty content")
-		return pd.DataFrame()
-	soup = BeautifulSoup(inst_html, features="lxml")
-
-	# Prefer Playwright DOM-extraction for structured rows when possible
-	# (Removed _playwright_extract_teams; use soup-based parsing only)
+	soup = BeautifulSoup(inst_html.text, features="lxml")
 
 	# Try parsing common table layouts used on stats.ncaa.org
 	try:
