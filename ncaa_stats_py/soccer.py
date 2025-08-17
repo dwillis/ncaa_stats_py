@@ -144,6 +144,8 @@ def get_soccer_teams(
 	)
 
 	schools_df = _get_schools()
+	# Deduplicate schools_df on school_name before merging
+	schools_df = schools_df.drop_duplicates(subset=["school_name"]).copy()
 	change_url = (
 		"https://stats.ncaa.org/rankings/change_sport_year_div?"
 		+ f"academic_year={season}&division={ncaa_level}.0"
@@ -392,6 +394,8 @@ def get_soccer_teams(
 		on=["school_name"],
 		how="left",
 	)
+	# Deduplicate merged teams_df on season and team_id
+	teams_df = teams_df.drop_duplicates(subset=["season", "team_id"]).copy()
 	teams_df.sort_values(by=["team_id"], inplace=True)
 
 	teams_df.to_csv(cache_file, index=False)
