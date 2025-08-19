@@ -2070,8 +2070,14 @@ def get_volleyball_player_season_stats(team_id: int, team_info: dict = None) -> 
 
     soup = BeautifulSoup(response.text, features="lxml")
 
+    # Check if we got a valid page
+    season_select = soup.find("select", {"id": "year_list"})
+    if season_select is None:
+        logging.warning(f"Could not find season selector for team {team_id}. Page may not have stats data.")
+        return pd.DataFrame()  # Return empty DataFrame
+
     season_name = (
-        soup.find("select", {"id": "year_list"})
+        season_select
         .find("option", {"selected": "selected"})
         .text
     )
@@ -2088,7 +2094,17 @@ def get_volleyball_player_season_stats(team_id: int, team_info: dict = None) -> 
         {"id": "stat_grid", "class": "small_font dataTable table-bordered"},
     )
 
-    temp_table_headers = table_data.find("thead").find("tr").find_all("th")
+    # Check if stats table exists
+    if table_data is None:
+        logging.warning(f"Could not find stats table for team {team_id}. Team may not have player stats available.")
+        return pd.DataFrame()  # Return empty DataFrame
+
+    thead = table_data.find("thead")
+    if thead is None:
+        logging.warning(f"Could not find table header for team {team_id}.")
+        return pd.DataFrame()
+
+    temp_table_headers = thead.find("tr").find_all("th")
     table_headers = [x.text for x in temp_table_headers]
 
     del temp_table_headers
