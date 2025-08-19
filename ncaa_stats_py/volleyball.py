@@ -2298,12 +2298,22 @@ def get_womens_volleyball_season_data(season: int, level: str | int = 1) -> dict
     # Get player stats for all teams
     logging.info("Loading player stats for all teams...")
     player_stats_list = []
-    for team_id in tqdm(teams_df['team_id'], desc="Loading player stats"):
+    for _, team_row in tqdm(teams_df.iterrows(), total=len(teams_df), desc="Loading player stats"):
         try:
-            stats = get_volleyball_player_season_stats(team_id)
+            # Pass team info to avoid lookup
+            team_info = {
+                "season": team_row["season"],
+                "ncaa_division": team_row["ncaa_division"],
+                "ncaa_division_formatted": team_row["ncaa_division_formatted"],
+                "team_conference_name": team_row["team_conference_name"],
+                "school_name": team_row["school_name"],
+                "school_id": team_row["school_id"],
+                "sport_id": "WVB"
+            }
+            stats = get_volleyball_player_season_stats(team_row['team_id'], team_info)
             player_stats_list.append(stats)
         except Exception as e:
-            logging.warning(f"Failed to get stats for team {team_id}: {e}")
+            logging.warning(f"Failed to get stats for team {team_row['team_id']}: {e}")
     
     player_stats_df = pd.concat(player_stats_list, ignore_index=True) if player_stats_list else pd.DataFrame()
     
@@ -2345,12 +2355,22 @@ def get_mens_volleyball_season_data(season: int, level: str | int = 1) -> dict:
     # Get player stats for all teams
     logging.info("Loading player stats for all teams...")
     player_stats_list = []
-    for team_id in tqdm(teams_df['team_id'], desc="Loading player stats"):
+    for _, team_row in tqdm(teams_df.iterrows(), total=len(teams_df), desc="Loading player stats"):
         try:
-            stats = get_volleyball_player_season_stats(team_id)
+            # Pass team info to avoid lookup
+            team_info = {
+                "season": team_row["season"],
+                "ncaa_division": team_row["ncaa_division"],
+                "ncaa_division_formatted": team_row["ncaa_division_formatted"],
+                "team_conference_name": team_row["team_conference_name"],
+                "school_name": team_row["school_name"],
+                "school_id": team_row["school_id"],
+                "sport_id": "MVB"
+            }
+            stats = get_volleyball_player_season_stats(team_row['team_id'], team_info)
             player_stats_list.append(stats)
         except Exception as e:
-            logging.warning(f"Failed to get stats for team {team_id}: {e}")
+            logging.warning(f"Failed to get stats for team {team_row['team_id']}: {e}")
     
     player_stats_df = pd.concat(player_stats_list, ignore_index=True) if player_stats_list else pd.DataFrame()
     
