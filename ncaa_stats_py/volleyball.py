@@ -1508,6 +1508,8 @@ def get_full_volleyball_schedule(
     if load_from_cache is True:
         return teams_df
 
+    # FIXED: Use get_volleyball_teams() for specific season instead of load_volleyball_teams()
+    # This prevents loading all teams from 2011 onwards
     teams_df = get_volleyball_teams(season=season, level=ncaa_level, sport=sport)
     team_ids_arr = teams_df["team_id"].to_numpy()
 
@@ -1524,7 +1526,6 @@ def get_full_volleyball_schedule(
         index=False,
     )
     return schedule_df
-
 
 def get_volleyball_team_roster(team_id: int) -> pd.DataFrame:
     """
@@ -1762,7 +1763,7 @@ def get_volleyball_team_roster(team_id: int) -> pd.DataFrame:
     return roster_df
 
 
-def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
+def get_volleyball_player_season_stats(team_id: int, team_info: dict = None) -> pd.DataFrame:
     """
     Given a team ID, this function retrieves and parses
     the season stats for all of the players in a given volleyball team.
@@ -1774,14 +1775,20 @@ def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
         Specifies the team you want volleyball stats from.
         This is separate from a school ID, which identifies the institution.
         A team ID should be unique to a school, and a season.
+    
+    team_info : dict, optional
+        Team metadata to avoid loading all teams data. Should contain:
+        season, ncaa_division, ncaa_division_formatted, team_conference_name,
+        school_name, school_id, sport_id
 
     Examples
     --------
     # Get the season stats for the 2024 Ohio St. team (D1, ID: 585398)
     >>> df = get_volleyball_player_season_stats(585398)
     
-    # Get the season stats for the 2024 Lees-McRae MVB team (D1, ID: 573699)
-    >>> df = get_volleyball_player_season_stats(573699)
+    # Get the season stats with team info to avoid data loading
+    >>> team_info = {...}  # from get_volleyball_teams()
+    >>> df = get_volleyball_player_season_stats(585398, team_info)
 
     Returns
     -------
@@ -1838,22 +1845,96 @@ def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
         "TRP_DBL",
     ]
 
-    # First, try to estimate the season from team_id to limit data loading
-    # Most recent team IDs are higher, so we can make a reasonable guess
-    current_year = datetime.now().year
-    estimated_season = current_year if datetime.now().month > 7 else current_year - 1
-    
-    # Try loading teams from estimated season first, then expand if needed
-    season_found = False
-    for year_offset in range(0, 5):  # Check current and previous 4 years
-        try_season = estimated_season - year_offset
+    # Use provided team_info if available to avoid loading all teams data
+    if team_info is not None:
+        season = team_info["season"]
+        ncaa_division = team_info["ncaa_division"]
+        ncaa_division_formatted = team_info["ncaa_division_formatted"]
+        team_conference_name = team_info["team_conference_name"]
+        school_name = team_info["school_name"]
+        school_id = int(team_info["school_id"])
+        sport_id = team_info["sport_id"]
+    else:
+        # Fallback to original method - try to find team efficiently
+        current_year = datetime.now().year
+        estimated_season = current_year if datetime.now().month > 7 else current_year - 1
         
-        try:
-            # FIXED: Pass start_year parameter to limit data loaded
-            team_df = load_volleyball_teams(start_year=try_season)
-            team_df = team_df[team_df["team_id"] == team_id]
+        season_found = False
+        for year_offset in range(0, 5):  # Check current and previous 4 years
+            try_season = estimated_season - year_offset
             
-            if len(team_df) > 0:
+            try:
+                # Load only specific season data
+                team_df = get_volleyball_teams(try_season, "I")
+                team_match = team_df[team_df["team_id"] == team_id]
+                
+                if len(team_match) > 0:
+                    season = team_match["season"].iloc[0]
+                    ncaa_division = team_match["ncaa_division"].iloc[0]
+                    ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                    team_conference_name = team_match["team_conference_name"].iloc[0]
+                    school_name = team_match["school_name"].iloc[0]
+                    school_id = int(team_match["school_id"].iloc[0])
+                    sport_id = "WVB"
+                    season_found = True
+                    break
+            except Exception:
+                continue
+        
+        # Try other divisions if not found in D1
+        if not season_found:
+            for division in [2, 3]:
+                for year_offset in range(0, 5):
+                    try_season = estimated_season - year_offset
+                    try:
+                        team_df = get_volleyball_teams(try_season, division)
+                        team_match = team_df[team_df["team_id"] == team_id]
+                        
+                        if len(team_match) > 0:
+                            season = team_match["season"].iloc[0]
+                            ncaa_division = team_match["ncaa_division"].iloc[0]
+                            ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                            team_conference_name = team_match["team_conference_name"].iloc[0]
+                            school_name = team_match["school_name"].iloc[0]
+                            school_id = int(team_match["school_id"].iloc[0])
+                            sport_id = "WVB"
+                            season_found = True
+                            break
+                    except Exception:
+                        continue
+                if season_found:
+                    break
+        
+        # Try men's volleyball if still not found
+        if not season_found:
+            for division in [1, 3]:  # Men's volleyball only has D1 and D3
+                for year_offset in range(0, 5):
+                    try_season = estimated_season - year_offset
+                    try:
+                        team_df = get_volleyball_teams(try_season, division, sport="men")
+                        team_match = team_df[team_df["team_id"] == team_id]
+                        
+                        if len(team_match) > 0:
+                            season = team_match["season"].iloc[0]
+                            ncaa_division = team_match["ncaa_division"].iloc[0]
+                            ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                            team_conference_name = team_match["team_conference_name"].iloc[0]
+                            school_name = team_match["school_name"].iloc[0]
+                            school_id = int(team_match["school_id"].iloc[0])
+                            sport_id = "MVB"
+                            season_found = True
+                            break
+                    except Exception:
+                        continue
+                if season_found:
+                    break
+
+        # Final fallback to original inefficient method
+        if not season_found:
+            try:
+                team_df = load_volleyball_teams()
+                team_df = team_df[team_df["team_id"] == team_id]
+
                 season = team_df["season"].iloc[0]
                 ncaa_division = team_df["ncaa_division"].iloc[0]
                 ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
@@ -1861,60 +1942,17 @@ def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
                 school_name = team_df["school_name"].iloc[0]
                 school_id = int(team_df["school_id"].iloc[0])
                 sport_id = "WVB"
-                season_found = True
-                break
-        except Exception:
-            continue
-    
-    # If not found in women's volleyball, try men's volleyball
-    if not season_found:
-        for year_offset in range(0, 5):  # Check current and previous 4 years
-            try_season = estimated_season - year_offset
-            
-            try:
-                # FIXED: Pass start_year parameter to limit data loaded
-                team_df = load_volleyball_teams(start_year=try_season, sport="men")
-                team_df = team_df[team_df["team_id"] == team_id]
-                
-                if len(team_df) > 0:
-                    season = team_df["season"].iloc[0]
-                    ncaa_division = team_df["ncaa_division"].iloc[0]
-                    ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-                    team_conference_name = team_df["team_conference_name"].iloc[0]
-                    school_name = team_df["school_name"].iloc[0]
-                    school_id = int(team_df["school_id"].iloc[0])
-                    sport_id = "MVB"
-                    season_found = True
-                    break
             except Exception:
-                continue
-    
-    # If still not found, fall back to loading all data (original behavior)
-    if not season_found:
-        try:
-            team_df = load_volleyball_teams()
-            team_df = team_df[team_df["team_id"] == team_id]
+                team_df = load_volleyball_teams(sport="men")
+                team_df = team_df[team_df["team_id"] == team_id]
 
-            season = team_df["season"].iloc[0]
-            ncaa_division = team_df["ncaa_division"].iloc[0]
-            ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-            team_conference_name = team_df["team_conference_name"].iloc[0]
-            school_name = team_df["school_name"].iloc[0]
-            school_id = int(team_df["school_id"].iloc[0])
-            sport_id = "WVB"
-        except Exception:
-            team_df = load_volleyball_teams(sport="men")
-            team_df = team_df[team_df["team_id"] == team_id]
-
-            season = team_df["season"].iloc[0]
-            ncaa_division = team_df["ncaa_division"].iloc[0]
-            ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-            team_conference_name = team_df["team_conference_name"].iloc[0]
-            school_name = team_df["school_name"].iloc[0]
-            school_id = int(team_df["school_id"].iloc[0])
-            sport_id = "MVB"
-
-    del team_df
+                season = team_df["season"].iloc[0]
+                ncaa_division = team_df["ncaa_division"].iloc[0]
+                ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+                team_conference_name = team_df["team_conference_name"].iloc[0]
+                school_name = team_df["school_name"].iloc[0]
+                school_id = int(team_df["school_id"].iloc[0])
+                sport_id = "MVB"
 
     home_dir = expanduser("~")
     home_dir = _format_folder_str(home_dir)
