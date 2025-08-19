@@ -2089,10 +2089,21 @@ def get_volleyball_player_season_stats(team_id: int, team_info: dict = None) -> 
         season = f"{season_name[0:4]}"
         season = int(season)
 
-    table_data = soup.find(
-        "table",
-        {"id": "stat_grid", "class": "small_font dataTable table-bordered"},
-    )
+    # Try to find the table by ID first (most reliable)
+    table_data = soup.find("table", {"id": "stat_grid"})
+
+    # If not found by ID, try by class components
+    if table_data is None:
+        table_data = soup.find("table", class_="small_font dataTable table-bordered")
+
+    # Final fallback - look for any table with stat_grid ID or containing dataTable class
+    if table_data is None:
+        tables = soup.find_all("table")
+        for table in tables:
+            if (table.get("id") == "stat_grid" or 
+                (table.get("class") and "dataTable" in " ".join(table.get("class")))):
+                table_data = table
+                break
 
     # Check if stats table exists
     if table_data is None:
