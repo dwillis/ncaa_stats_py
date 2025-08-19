@@ -1842,371 +1842,6 @@ def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
         "TRP_DBL",
     ]
 
-    try:
-        team_df = load_volleyball_teams()
-
-        team_df = team_df[team_df["team_id"] == team_id]
-
-        season = team_df["season"].iloc[0]
-        ncaa_division = int(team_df["ncaa_division"].iloc[0])
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
-        sport_id = "WVB"
-    except Exception:
-        team_df = load_volleyball_teams(sport="men")
-
-        team_df = team_df[team_df["team_id"] == team_id]
-
-        season = team_df["season"].iloc[0]
-        ncaa_division = int(team_df["ncaa_division"].iloc[0])
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
-        sport_id = "MVB"
-
-    del team_df
-
-    home_dir = expanduser("~")
-    home_dir = _format_folder_str(home_dir)
-
-    url = f"https://stats.ncaa.org/teams/{team_id}/season_to_date_stats"
-
-    if exists(f"{home_dir}/.ncaa_stats_py/"):
-        pass
-    else:
-        mkdir(f"{home_dir}/.ncaa_stats_py/")
-
-    if exists(f"{home_dir}/.ncaa_stats_py/volleyball_{sport_id}/"):
-        pass
-    else:
-        mkdir(f"{home_dir}/.ncaa_stats_py/volleyball_{sport_id}/")
-
-    if exists(
-        f"{home_dir}/.ncaa_stats_py/" +
-        f"volleyball_{sport_id}/player_season_stats/"
-    ):
-        pass
-    else:
-        mkdir(
-            f"{home_dir}/.ncaa_stats_py/" +
-            f"volleyball_{sport_id}/player_season_stats/"
-        )
-
-    if exists(
-        f"{home_dir}/.ncaa_stats_py/" +
-        f"volleyball_{sport_id}/player_season_stats/"
-        + f"{season:00d}_{school_id:00d}_player_season_stats.csv"
-    ):
-        games_df = pd.read_csv(
-            f"{home_dir}/.ncaa_stats_py/" +
-            f"volleyball_{sport_id}/player_season_stats/"
-            + f"{season:00d}_{school_id:00d}_player_season_stats.csv"
-        )
-        file_mod_datetime = datetime.fromtimestamp(
-            getmtime(
-                f"{home_dir}/.ncaa_stats_py/" +
-                f"volleyball_{sport_id}/player_season_stats/"
-                + f"{season:00d}_{school_id:00d}_player_season_stats.csv"
-            )
-        )
-    else:
-        file_mod_datetime = datetime.today()
-        load_from_cache = False
-
-    now = datetime.today()
-
-    age = now - file_mod_datetime
-
-    if (
-        age.days > 1 and
-        season >= now.year
-    ):
-        load_from_cache = False
-
-    if load_from_cache is True:
-        return games_df
-
-    response = _get_webpage(url=url)
-
-    soup = BeautifulSoup(response.text, features="lxml")
-
-    season_name = (
-        soup.find("select", {"id": "year_list"})
-        .find("option", {"selected": "selected"})
-        .text
-    )
-
-    if sport_id == "MVB":
-        season = f"{season_name[0:2]}{season_name[-2:]}"
-        season = int(season)
-    elif sport_id == "WVB":
-        season = f"{season_name[0:4]}"
-        season = int(season)
-
-    table_data = soup.find(
-        "table",
-        {"id": "stat_grid", "class": "small_font dataTable table-bordered"},
-    )
-
-    temp_table_headers = table_data.find("thead").find("tr").find_all("th")
-    table_headers = [x.text for x in temp_table_headers]
-
-    del temp_table_headers
-
-    t_rows = table_data.find("tbody").find_all("tr", {"class": "text"})
-    for t in t_rows:
-        p_last = ""
-        p_first = ""
-        t_cells = t.find_all("td")
-        if "team" in t_cells[1].text.lower():
-            continue
-        p_sortable = t_cells[1].get("data-order")
-        if len(p_sortable) == 2:
-            p_last, p_first = p_sortable.split(",")
-        elif len(p_sortable) == 3:
-            p_last, temp_name, p_first = p_sortable.split(",")
-            p_last = f"{p_last} {temp_name}"
-
-        t_cells = [x.text.strip() for x in t_cells]
-        t_cells = [x.replace(",", "") for x in t_cells]
-
-        temp_df = pd.DataFrame(
-            data=[t_cells],
-            columns=table_headers,
-        )
-
-        player_id = t.find("a").get("href")
-
-        player_id = player_id.replace("/players", "").replace("/", "")
-
-        player_id = int(player_id)
-
-        temp_df["player_id"] = player_id
-        temp_df["player_last_name"] = p_last.strip()
-        temp_df["player_first_name"] = p_first.strip()
-
-        stats_df_arr.append(temp_df)
-        del temp_df
-
-    stats_df = pd.concat(stats_df_arr, ignore_index=True)
-    stats_df = stats_df.replace("", None)
-
-    stats_df["season"] = season
-    stats_df["season_name"] = season_name
-    stats_df["school_id"] = school_id
-    stats_df["school_name"] = school_name
-    stats_df["ncaa_division"] = ncaa_division
-    stats_df["ncaa_division_formatted"] = ncaa_division_formatted
-    stats_df["team_conference_name"] = team_conference_name
-    stats_df["sport_id"] = sport_id
-    stats_df["team_id"] = team_id
-
-    stats_df = stats_df.infer_objects()
-
-    stats_df.rename(
-        columns={
-            "#": "player_jersey_number",
-            "Player": "player_full_name",
-            "Yr": "player_class",
-            "Pos": "player_position",
-            "Ht": "player_height",
-            "S": "sets_played",
-            "Kills": "kills",
-            "Errors": "errors",
-            "Total Attacks": "total_attacks",
-            "Hit Pct": "hit%",
-            "Assists": "assists",
-            "Aces": "aces",
-            "SErr": "serve_errors",
-            "Digs": "digs",
-            "RetAtt": "return_attacks",
-            "RErr": "return_errors",
-            "Block Solos": "solo_blocks",
-            "Block Assists": "assisted_blocks",
-            "BErr": "block_errors",
-            "PTS": "points",
-            "Trpl Dbl": "TRP_DBL",
-            "Dbl Dbl": "DBL_DBL",
-            "TB": "total_blocks",
-            "SrvAtt": "serve_attempts",
-        },
-        inplace=True,
-    )
-
-    for i in stats_df.columns:
-        if i in stat_columns:
-            pass
-        elif "Attend" in stat_columns:
-            pass
-        else:
-            raise ValueError(
-                f"Unhandled column name {i}"
-            )
-    stats_df = stats_df.reindex(columns=stat_columns)
-
-    stats_df = stats_df.infer_objects().fillna(0)
-    stats_df = stats_df.astype(
-        {
-            "GP": "uint16",
-            "GS": "uint16",
-            "sets_played": "uint16",
-            "kills": "uint16",
-            "errors": "uint16",
-            "total_attacks": "uint16",
-            "hit%": "float32",
-            "assists": "uint16",
-            "aces": "uint16",
-            "serve_errors": "uint16",
-            "digs": "uint16",
-            "return_attacks": "uint16",
-            "return_errors": "uint16",
-            "solo_blocks": "uint16",
-            "assisted_blocks": "uint16",
-            "block_errors": "uint16",
-            "points": "float32",
-            "BHE": "uint16",
-            "TRP_DBL": "uint16",
-            "serve_attempts": "uint16",
-            "total_blocks": "float32",
-            "DBL_DBL": "uint16",
-            "school_id": "uint32",
-        }
-    )
-
-    stats_df["hit%"] = stats_df["hit%"].round(3)
-    stats_df["points"] = stats_df["points"].round(1)
-
-    stats_df.to_csv(
-        f"{home_dir}/.ncaa_stats_py/" +
-        f"volleyball_{sport_id}/player_season_stats/" +
-        f"{season:00d}_{school_id:00d}_player_season_stats.csv",
-        index=False,
-    )
-
-    return stats_df
-
-
-def summarize_volleyball_season(season: int, level: str | int = 1, sport: str = None) -> dict:
-    """
-    Get a quick summary of a volleyball season.
-    
-    Parameters
-    ----------
-    season : int
-        The season year
-    level : str | int, default 1
-        NCAA division
-    sport : str, optional
-        Sport type, if None uses configured default
-        
-    Examples
-    --------
-    >>> summary = summarize_volleyball_season(2024, 1, "women")
-    >>> print(f"Found {summary['total_teams']} teams in {summary['conferences']} conferences")
-    
-    Returns
-    -------
-    dict
-        Summary information about the volleyball season
-    """
-    if sport is None:
-        sport = volleyball_config.default_sport
-        
-    teams_df = get_volleyball_teams(season, level, sport)
-    get_mens_data, sport_id = _get_sport_params(sport)
-    
-    summary = {
-        'season': season,
-        'sport': sport,
-        'level': level,
-        'total_teams': len(teams_df),
-        'conferences': teams_df['team_conference_name'].nunique(),
-        'conference_list': sorted(teams_df['team_conference_name'].unique()),
-        'data_cache_location': f"{expanduser('~')}/.ncaa_stats_py/volleyball_{sport_id}/"
-    }
-    
-    return summary
-
-
-def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
-    """
-    Given a team ID, this function retrieves and parses
-    the season stats for all of the players in a given volleyball team.
-
-    Parameters
-    ----------
-    team_id : int
-        Required argument.
-        Specifies the team you want volleyball stats from.
-        This is separate from a school ID, which identifies the institution.
-        A team ID should be unique to a school, and a season.
-
-    Examples
-    --------
-    # Get the season stats for the 2024 Ohio St. team (D1, ID: 585398)
-    >>> df = get_volleyball_player_season_stats(585398)
-    
-    # Get the season stats for the 2024 Lees-McRae MVB team (D1, ID: 573699)
-    >>> df = get_volleyball_player_season_stats(573699)
-
-    Returns
-    -------
-    pd.DataFrame
-        A pandas DataFrame object with the season stats for
-        all players with a given NCAA volleyball team.
-    """
-    sport_id = ""
-    load_from_cache = True
-    stats_df = pd.DataFrame()
-    stats_df_arr = []
-    temp_df = pd.DataFrame()
-
-    stat_columns = [
-        "season",
-        "season_name",
-        "sport_id",
-        "team_id",
-        "team_conference_name",
-        "school_id",
-        "school_name",
-        "ncaa_division",
-        "ncaa_division_formatted",
-        "player_id",
-        "player_jersey_number",
-        "player_last_name",
-        "player_first_name",
-        "player_full_name",
-        "player_class",
-        "player_position",
-        "player_height",
-        "GP",
-        "GS",
-        "sets_played",
-        "MS",
-        "kills",
-        "errors",
-        "total_attacks",
-        "hit%",
-        "assists",
-        "aces",
-        "serve_errors",
-        "digs",
-        "return_attacks",
-        "return_errors",
-        "solo_blocks",
-        "assisted_blocks",
-        "block_errors",
-        "total_blocks",
-        "points",
-        "BHE",
-        "serve_attempts",
-        "DBL_DBL",
-        "TRP_DBL",
-    ]
-
     # First, try to estimate the season from team_id to limit data loading
     # Most recent team IDs are higher, so we can make a reasonable guess
     current_year = datetime.now().year
@@ -2503,6 +2138,95 @@ def get_volleyball_player_season_stats(team_id: int) -> pd.DataFrame:
     )
 
     return stats_df
+
+def summarize_volleyball_season(season: int, level: str | int = 1, sport: str = None) -> dict:
+    """
+    Get a quick summary of a volleyball season.
+    
+    Parameters
+    ----------
+    season : int
+        The season year
+    level : str | int, default 1
+        NCAA division
+    sport : str, optional
+        Sport type, if None uses configured default
+        
+    Examples
+    --------
+    >>> summary = summarize_volleyball_season(2024, 1, "women")
+    >>> print(f"Found {summary['total_teams']} teams in {summary['conferences']} conferences")
+    
+    Returns
+    -------
+    dict
+        Summary information about the volleyball season
+    """
+    if sport is None:
+        sport = volleyball_config.default_sport
+        
+    teams_df = get_volleyball_teams(season, level, sport)
+    get_mens_data, sport_id = _get_sport_params(sport)
+    
+    summary = {
+        'season': season,
+        'sport': sport,
+        'level': level,
+        'total_teams': len(teams_df),
+        'conferences': teams_df['team_conference_name'].nunique(),
+        'conference_list': sorted(teams_df['team_conference_name'].unique()),
+        'data_cache_location': f"{expanduser('~')}/.ncaa_stats_py/volleyball_{sport_id}/"
+    }
+    
+    return summary
+
+
+def get_womens_volleyball_season_data(season: int, level: str | int = 1) -> dict:
+    """
+    Get complete women's volleyball season data in one call.
+    
+    Parameters
+    ----------
+    season : int
+        The season year
+    level : str | int, default 1
+        NCAA division
+        
+    Examples
+    --------
+    >>> data = get_womens_volleyball_season_data(2024, 1)
+    >>> teams = data['teams']
+    >>> schedule = data['schedule'] 
+    >>> player_stats = data['player_stats']
+    
+    Returns
+    -------
+    dict
+        Dictionary with keys: 'teams', 'schedule', 'player_stats'
+    """
+    teams_df = get_womens_volleyball_teams(season, level)
+    
+    logging.info("Loading full schedule...")
+    schedule_df = get_full_volleyball_schedule(season, level, sport="women")
+    
+    # Get player stats for all teams
+    logging.info("Loading player stats for all teams...")
+    player_stats_list = []
+    for team_id in tqdm(teams_df['team_id'], desc="Loading player stats"):
+        try:
+            stats = get_volleyball_player_season_stats(team_id)
+            player_stats_list.append(stats)
+        except Exception as e:
+            logging.warning(f"Failed to get stats for team {team_id}: {e}")
+    
+    player_stats_df = pd.concat(player_stats_list, ignore_index=True) if player_stats_list else pd.DataFrame()
+    
+    return {
+        'teams': teams_df,
+        'schedule': schedule_df, 
+        'player_stats': player_stats_df
+    }
+
 
 def get_mens_volleyball_season_data(season: int, level: str | int = 1) -> dict:
     """
