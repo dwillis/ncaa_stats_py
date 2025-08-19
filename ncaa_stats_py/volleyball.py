@@ -637,20 +637,50 @@ def get_volleyball_team_schedule(team_id: int) -> pd.DataFrame:
 
     url = f"https://stats.ncaa.org/teams/{team_id}"
 
-    try:
-        team_df = load_volleyball_teams()
-        team_df = team_df[team_df["team_id"] == team_id]
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        sport_id = "WVB"
-    except Exception:
-        team_df = load_volleyball_teams(sport="men")
-        team_df = team_df[team_df["team_id"] == team_id]
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        sport_id = "MVB"
+    current_year = datetime.now().year
+    estimated_season = current_year if datetime.now().month > 7 else current_year - 1
+
+    season_found = False
+    for year_offset in range(0, 3):
+        try_season = estimated_season - year_offset
+    
+        # Try women's volleyball first
+        for division in [1, 2, 3]:
+            try:
+                team_df = get_volleyball_teams(try_season, division, sport="women")
+                team_match = team_df[team_df["team_id"] == team_id]
+                
+                if len(team_match) > 0:
+                    season = team_match["season"].iloc[0]
+                    ncaa_division = team_match["ncaa_division"].iloc[0]
+                    ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                    sport_id = "WVB"
+                    season_found = True
+                    break
+            except Exception:
+                continue
+        
+        if season_found:
+            break
+            
+        # Try men's volleyball
+        for division in [1, 3]:
+            try:
+                team_df = get_volleyball_teams(try_season, division, sport="men")
+                team_match = team_df[team_df["team_id"] == team_id]
+                
+                if len(team_match) > 0:
+                    season = team_match["season"].iloc[0]
+                    ncaa_division = team_match["ncaa_division"].iloc[0]
+                    ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                    sport_id = "MVB"
+                    season_found = True
+                    break
+            except Exception:
+                continue
+        
+        if season_found:
+            break
 
     del team_df
 
@@ -1586,28 +1616,50 @@ def get_volleyball_team_roster(team_id: int) -> pd.DataFrame:
         "player_url",
     ]
 
-    try:
-        team_df = load_volleyball_teams()
-        team_df = team_df[team_df["team_id"] == team_id]
+    current_year = datetime.now().year
+    estimated_season = current_year if datetime.now().month > 7 else current_year - 1
 
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
-        sport_id = "WVB"
-    except Exception:
-        team_df = load_volleyball_teams(sport="men")
-        team_df = team_df[team_df["team_id"] == team_id]
-
-        season = team_df["season"].iloc[0]
-        ncaa_division = team_df["ncaa_division"].iloc[0]
-        ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-        team_conference_name = team_df["team_conference_name"].iloc[0]
-        school_name = team_df["school_name"].iloc[0]
-        school_id = int(team_df["school_id"].iloc[0])
-        sport_id = "MVB"
+    season_found = False
+    for year_offset in range(0, 3):
+        try_season = estimated_season - year_offset
+    
+        # Try women's volleyball first
+        for division in [1, 2, 3]:
+            try:
+                team_df = get_volleyball_teams(try_season, division, sport="women")
+                team_match = team_df[team_df["team_id"] == team_id]
+                
+                if len(team_match) > 0:
+                    season = team_match["season"].iloc[0]
+                    ncaa_division = team_match["ncaa_division"].iloc[0]
+                    ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                    sport_id = "WVB"
+                    season_found = True
+                    break
+            except Exception:
+                continue
+        
+        if season_found:
+            break
+            
+        # Try men's volleyball
+        for division in [1, 3]:
+            try:
+                team_df = get_volleyball_teams(try_season, division, sport="men")
+                team_match = team_df[team_df["team_id"] == team_id]
+                
+                if len(team_match) > 0:
+                    season = team_match["season"].iloc[0]
+                    ncaa_division = team_match["ncaa_division"].iloc[0]
+                    ncaa_division_formatted = team_match["ncaa_division_formatted"].iloc[0]
+                    sport_id = "MVB"
+                    season_found = True
+                    break
+            except Exception:
+                continue
+        
+        if season_found:
+            break
 
     del team_df
 
