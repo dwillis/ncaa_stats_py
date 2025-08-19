@@ -1508,11 +1508,7 @@ def get_full_volleyball_schedule(
     if load_from_cache is True:
         return teams_df
 
-    teams_df = load_volleyball_teams(sport=sport)
-    teams_df = teams_df[
-        (teams_df["season"] == season) &
-        (teams_df["ncaa_division"] == ncaa_level)
-    ]
+    teams_df = get_volleyball_teams(season=season, level=ncaa_level, sport=sport)
     team_ids_arr = teams_df["team_id"].to_numpy()
 
     for team_id in tqdm(team_ids_arr):
