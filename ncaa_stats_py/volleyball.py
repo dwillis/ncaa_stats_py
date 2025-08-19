@@ -2109,40 +2109,85 @@ def get_volleyball_player_season_stats(team_id: int, team_info: dict = None) -> 
 
     del temp_table_headers
 
-    t_rows = table_data.find("tbody").find_all("tr", {"class": "text"})
+    tbody = table_data.find("tbody")
+    if tbody is None:
+        logging.warning(f"Could not find table body for team {team_id}.")
+        return pd.DataFrame()
+
+    t_rows = tbody.find_all("tr", {"class": "text"})
     for t in t_rows:
-        p_last = ""
-        p_first = ""
-        t_cells = t.find_all("td")
-        if "team" in t_cells[1].text.lower():
+        try:
+            p_last = ""
+            p_first = ""
+            t_cells = t.find_all("td")
+            
+            # Skip if not enough cells or if it's a team/totals row
+            if len(t_cells) < 2:
+                continue
+                
+            # Check if this is a team totals row or opponent totals row
+            cell_text = t_cells[1].text.lower().strip()
+            if any(skip_word in cell_text for skip_word in ["team", "totals", "opponent"]):
+                continue
+
+            # Get player name data
+            p_sortable = t_cells[1].get("data-order")
+            if p_sortable is None or len(p_sortable.strip()) == 0:
+                continue
+                
+            p_sortable_parts = p_sortable.split(",")
+            if len(p_sortable_parts) == 2:
+                p_last, p_first = p_sortable_parts
+            elif len(p_sortable_parts) == 3:
+                p_last, temp_name, p_first = p_sortable_parts
+                p_last = f"{p_last} {temp_name}"
+            else:
+                # Fallback: use the visible text
+                p_last = t_cells[1].text.strip()
+                p_first = ""
+
+            # Extract cell data
+            t_cells_text = []
+            for cell in t_cells:
+                text = cell.text.strip() if cell.text else ""
+                # Replace dashes and empty strings with proper values
+                if text == "-" or text == "":
+                    text = "0"
+                # Remove commas from numbers
+                text = text.replace(",", "")
+                t_cells_text.append(text)
+
+            temp_df = pd.DataFrame(
+                data=[t_cells_text],
+                columns=table_headers,
+            )
+
+            # Get player ID from link
+            player_link = t.find("a")
+            if player_link is None:
+                continue
+                
+            player_href = player_link.get("href")
+            if player_href is None:
+                continue
+
+            player_id = player_href.replace("/players", "").replace("/", "")
+            
+            try:
+                player_id = int(player_id)
+            except ValueError:
+                continue
+
+            temp_df["player_id"] = player_id
+            temp_df["player_last_name"] = p_last.strip()
+            temp_df["player_first_name"] = p_first.strip()
+
+            stats_df_arr.append(temp_df)
+            del temp_df
+            
+        except Exception as e:
+            logging.warning(f"Error processing player row for team {team_id}: {e}")
             continue
-        p_sortable = t_cells[1].get("data-order")
-        if len(p_sortable) == 2:
-            p_last, p_first = p_sortable.split(",")
-        elif len(p_sortable) == 3:
-            p_last, temp_name, p_first = p_sortable.split(",")
-            p_last = f"{p_last} {temp_name}"
-
-        t_cells = [x.text.strip() for x in t_cells]
-        t_cells = [x.replace(",", "") for x in t_cells]
-
-        temp_df = pd.DataFrame(
-            data=[t_cells],
-            columns=table_headers,
-        )
-
-        player_id = t.find("a").get("href")
-
-        player_id = player_id.replace("/players", "").replace("/", "")
-
-        player_id = int(player_id)
-
-        temp_df["player_id"] = player_id
-        temp_df["player_last_name"] = p_last.strip()
-        temp_df["player_first_name"] = p_first.strip()
-
-        stats_df_arr.append(temp_df)
-        del temp_df
 
     stats_df = pd.concat(stats_df_arr, ignore_index=True)
     stats_df = stats_df.replace("", None)
