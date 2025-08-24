@@ -1241,16 +1241,13 @@ atexit.register(cleanup)
 
 
 def _safe_get_webpage(*args, **kwargs):
-    """Run _get_webpage in a thread if an asyncio loop is running.
+    """Run _get_webpage safely when an asyncio loop may be active.
 
-    This helper keeps sync Playwright / blocking HTTP calls off the running
-    asyncio event loop by executing them in a ThreadPoolExecutor when a loop
-    is detected. Callers may pass the same args/kwargs they would to
-    _get_webpage. A special optional kwarg `_timeout` (default 120s) sets the
-    maximum wait time for the thread future.
+    If called from a running asyncio event loop, run the async Playwright
+    implementation in a separate thread (with its own event loop) to avoid
+    mixing sync Playwright and threads/greenlets. Otherwise, call the sync
+    _get_webpage implementation directly.
     """
-    # Local import to avoid adding top-level dependencies or creating
-    # import-order issues in modules that import utls.
     import concurrent.futures
     import asyncio
 
@@ -1260,11 +1257,21 @@ def _safe_get_webpage(*args, **kwargs):
     except RuntimeError:
         loop = None
 
+    # If there's a running asyncio loop in this thread, use the async
+    # playwright implementation but execute it in a separate thread so it
+    # gets its own event loop. This avoids calling the sync Playwright
+    # code (which relies on greenlets) from a different thread.
     if loop and loop.is_running():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_get_webpage, *args, **kwargs)
-            return future.result(timeout=timeout)
+        def _run_async_in_thread(*a, **k):
+            return asyncio.run(_get_webpage_async(*a, **k))
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_run_async_in_thread, *args, **kwargs)
+            async_resp = future.result(timeout=timeout)
+            # async_resp is AsyncWebPageResponse(text, status)
+            return WebPageResponse(async_resp.text, getattr(async_resp, 'status', 200))
+
+    # Otherwise, call the synchronous helper that uses sync_playwright
     return _get_webpage(*args, **kwargs)
 
 
