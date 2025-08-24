@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools","wheel","pandas","tqdm","requests","lxml","pytz","numpy","beautifulsoup4"]
+requires = ["setuptools","wheel","pandas","tqdm","lxml","pytz","numpy","beautifulsoup4"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -36,7 +36,6 @@ dependencies = [
     "wheel",
     "pandas>=2.2.3",
     "tqdm>=4.67.1",
-    "requests>=2.32.3",
     "lxml>=5.3.0",
     "pytz>=2025.1",
     "beautifulsoup4>=4.12.3",

@@ -21,6 +21,7 @@ from ncaa_stats_py.utls import (
     _get_seconds_from_time_str,
     _get_stat_id,
     _get_webpage,
+    _safe_get_webpage,
 )
 
 
@@ -164,7 +165,7 @@ def get_soccer_teams(
     )
 
     # Use the shared _get_webpage utility for all requests (like lacrosse.py)
-    inst_html = _get_webpage(inst_url)
+    inst_html = _safe_get_webpage(inst_url)
     soup = BeautifulSoup(inst_html.text, features="lxml")
 
     # Try parsing common table layouts used on stats.ncaa.org
@@ -445,187 +446,277 @@ def load_soccer_teams(
 
     return pd.DataFrame()
 
-def get_soccer_team_schedule(
-    team_id: int, 
-    season: int, 
-    get_womens_soccer_data: bool = False
-) -> pd.DataFrame:
+
+def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
     """
     Retrieves a team schedule, from a valid NCAA soccer team ID.
-    
+
     Parameters
     ----------
-    team_id : int
-        The NCAA team ID
-    season : int
-        The season year (e.g., 2025 for Fall 2025 season)
-    get_womens_soccer_data : bool, optional
-        Whether to get women's soccer data (default: False for men's)
-    
+    `team_id` (int, mandatory):
+        Required argument.
+        Specifies the team you want a schedule from.
+        This is separate from a school ID, which identifies the institution.
+        A team ID should be unique to a school, and a season.
+
+    Usage
+    ----------
+    ```python
+
+    from ncaa_stats_py.soccer import get_soccer_team_schedule
+
+    ########################################
+    #          Men's soccer                #
+    ########################################
+
+    # Get the team schedule for the
+    # 2024 Wake Forest MSO team (D1, ID: 571234).
+    print(
+        "Get the team schedule for the " +
+        "2024 Wake Forest MSO team (D1, ID: 571234)."
+    )
+    df = get_soccer_team_schedule(571234)
+    print(df)
+
+    # Get the team schedule for the
+    # 2023 Charleston MSO team (D1, ID: 546789).
+    print(
+        "Get the team schedule for the " +
+        "2023 Charleston MSO team (D1, ID: 546789)."
+    )
+    df = get_soccer_team_schedule(546789)
+    print(df)
+
+    ########################################
+    #          Women's soccer              #
+    ########################################
+
+    # Get the team schedule for the
+    # 2024 UNC WSO team (D1, ID: 572345).
+    print(
+        "Get the team schedule for the " +
+        "2024 UNC WSO team (D1, ID: 572345)."
+    )
+    df = get_soccer_team_schedule(572345)
+    print(df)
+
+    # Get the team schedule for the
+    # 2023 Duke WSO team (D1, ID: 546987).
+    print(
+        "Get the team schedule for the " +
+        "2023 Duke WSO team (D1, ID: 546987)."
+    )
+    df = get_soccer_team_schedule(546987)
+    print(df)
+
+    ```
+
     Returns
-    -------
-    pd.DataFrame
-        DataFrame containing the team's schedule
+    ----------
+    A pandas `DataFrame` object with an NCAA soccer team's schedule.
+
     """
-    
-    # Set sport_id based on parameter
-    sport_id = "WSO" if get_womens_soccer_data else "MSO"
-    
+
+    sport_id = ""
     schools_df = _get_schools()
     games_df = pd.DataFrame()
     games_df_arr = []
+    season = 0
     temp_df = pd.DataFrame()
     load_from_cache = True
 
     home_dir = expanduser("~")
     home_dir = _format_folder_str(home_dir)
 
-    # Try to get team info from teams cache first
+    url = f"https://stats.ncaa.org/teams/{team_id}"
+
+    # Try to get team info from cached data, with proper error handling
     team_info_found = False
-    ncaa_division = 1
-    ncaa_division_formatted = "I"
-    school_name = None
     
     try:
-        # Load teams for the specified sport and find the team
-        teams_df = get_soccer_teams(season, "I", get_womens_soccer_data=get_womens_soccer_data)
-        if not teams_df.empty:
-            team_row = teams_df[teams_df["team_id"] == team_id]
-            if not team_row.empty:
-                ncaa_division = team_row["ncaa_division"].iloc[0]
-                ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
-                school_name = team_row["school_name"].iloc[0]
-                team_info_found = True
-                logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
-        
-        # If not found in Division I, try other divisions
-        if not team_info_found:
-            for div in ["II", "III"]:
-                teams_df = get_soccer_teams(season, div, get_womens_soccer_data=get_womens_soccer_data)
-                if not teams_df.empty:
-                    team_row = teams_df[teams_df["team_id"] == team_id]
-                    if not team_row.empty:
-                        ncaa_division = team_row["ncaa_division"].iloc[0]
-                        ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
-                        school_name = team_row["school_name"].iloc[0]
-                        team_info_found = True
-                        logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
-                        break
-                        
+        team_df = load_soccer_teams()
+        team_df = team_df[team_df["team_id"] == team_id]
+        if not team_df.empty:
+            season = team_df["season"].iloc[0]
+            ncaa_division = team_df["ncaa_division"].iloc[0]
+            ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+            sport_id = "MSO"
+            team_info_found = True
+        del team_df
     except Exception as e:
-        logging.warning(f"Could not find team in teams cache: {e}")
+        logging.info(f"Could not find team in men's soccer data: {e}")
 
-    # If team not found in cache, extract info from the team page directly
     if not team_info_found:
-        logging.warning(f"Team ID {team_id} not found in teams cache. Extracting info from team page.")
         try:
-            url = f"https://stats.ncaa.org/teams/{team_id}"
-            response = _get_webpage(url=url)
+            team_df = load_soccer_teams(get_womens_soccer_data=True)
+            team_df = team_df[team_df["team_id"] == team_id]
+            if not team_df.empty:
+                season = team_df["season"].iloc[0]
+                ncaa_division = team_df["ncaa_division"].iloc[0]
+                ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+                sport_id = "WSO"
+                team_info_found = True
+            del team_df
+        except Exception as e:
+            logging.info(f"Could not find team in women's soccer data: {e}")
+
+    # If team not found in cached data, extract info from the team page directly
+    if not team_info_found:
+        logging.warning(f"Team ID {team_id} not found in cached teams data. Extracting info from team page.")
+        try:
+            # Handle potential asyncio loop conflicts with Playwright
+            # import concurrent.futures
+            # import threading
+            
+            # def get_webpage_in_thread():
+            #     return _get_webpage(url=url)
+            
+            # try:
+            #     # Check if we're in an asyncio environment
+            #     import asyncio
+            #     try:
+            #         loop = asyncio.get_running_loop()
+            #         # We're in an asyncio loop, run in thread
+            #         logging.info("Asyncio loop detected, running webpage request in separate thread")
+            #         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            #             future = executor.submit(get_webpage_in_thread)
+            #             response = future.result(timeout=120)  # 2 minute timeout
+            #     except RuntimeError:
+            #         # No running loop, safe to call directly
+            #         response = _get_webpage(url=url)
+            # except ImportError:
+            #     # asyncio not available, call directly
+            #     response = _get_webpage(url=url)
+            response = _safe_get_webpage(url=url, _timeout=120)
+
             soup = BeautifulSoup(response.text, features="lxml")
             
-            # Extract school name from the page
-            try:
-                school_name = soup.find("div", {"class": "card"}).find("img").get("alt")
-            except:
-                # Fallback method
-                try:
-                    school_name = soup.find("title").text.split(" - ")[0]
-                except:
-                    school_name = f"Team {team_id}"
+            # Extract season from the year selector
+            season_element = soup.find("select", {"id": "year_list"})
+            if season_element:
+                selected_option = season_element.find("option", {"selected": "selected"})
+                if selected_option:
+                    season_name = selected_option.text
+                    # Convert "2023-24" to 2024 or handle single year formats
+                    if "-" in season_name:
+                        season = int("20" + season_name.split("-")[-1]) if len(season_name.split("-")[-1]) == 2 else int(season_name.split("-")[-1])
+                    else:
+                        season = int(season_name)
+                else:
+                    season = datetime.today().year
+            else:
+                season = datetime.today().year
             
-            logging.info(f"Extracted school name: {school_name}")
+            # Try to determine sport from page content
+            page_text = soup.get_text().lower()
+            if "women" in page_text or "wso" in page_text:
+                sport_id = "WSO"
+            else:
+                sport_id = "MSO"  # Default to men's
+            
+            # Default division info
+            ncaa_division = 1
+            ncaa_division_formatted = "I"
+            
+            logging.info(f"Extracted info for team {team_id}: season={season}, sport_id={sport_id}")
             
         except Exception as e:
             logging.error(f"Could not extract team info from page: {e}")
-            school_name = f"Team {team_id}"
+            # Ultimate fallback
+            season = datetime.today().year
+            sport_id = "MSO"
+            ncaa_division = 1
+            ncaa_division_formatted = "I"
 
-    # Get stat sequence for the sport and season
-    try:
-        sport_key = "womens_soccer" if get_womens_soccer_data else "mens_soccer"
-        stat_sequence = _get_stat_id(sport_key, season, "team")
-        logging.info(f"Found stat ID {stat_sequence} for {sport_key} season {season}")
-    except LookupError:
-        logging.warning(f"Could not find team stat ID for {sport_key} season {season}")
-        # Use fallback values
-        stat_sequence = 56 if get_womens_soccer_data else 30
+    if exists(f"{home_dir}/.ncaa_stats_py/"):
+        pass
+    else:
+        mkdir(f"{home_dir}/.ncaa_stats_py/")
 
-    # Ensure cache directories exist
-    import os
-    base_cache_dir = f"{home_dir}/.ncaa_stats_py"
-    soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
-    schedule_cache_dir = f"{soccer_cache_dir}/team_schedule"
-    
-    for d in [base_cache_dir, soccer_cache_dir, schedule_cache_dir]:
-        if not os.path.exists(d):
-            os.makedirs(d)
+    if exists(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/"):
+        pass
+    else:
+        mkdir(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/")
 
-    cache_file = f"{schedule_cache_dir}/{team_id}_team_schedule.csv"
+    if exists(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule/"):
+        pass
+    else:
+        mkdir(f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule/")
 
-    # Check if we should load from cache
-    if os.path.exists(cache_file):
-        games_df = pd.read_csv(cache_file)
-        file_mod_datetime = datetime.fromtimestamp(os.path.getmtime(cache_file))
+    if exists(
+        f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule/"
+        + f"{team_id}_team_schedule.csv"
+    ):
+        games_df = pd.read_csv(
+            f"{home_dir}/.ncaa_stats_py/soccer_{sport_id}/team_schedule/"
+            + f"{team_id}_team_schedule.csv"
+        )
+        file_mod_datetime = datetime.fromtimestamp(
+            getmtime(
+                f"{home_dir}/.ncaa_stats_py/"
+                + f"soccer_{sport_id}/team_schedule/"
+                + f"{team_id}_team_schedule.csv"
+            )
+        )
     else:
         file_mod_datetime = datetime.today()
         load_from_cache = False
 
     now = datetime.today()
+
     age = now - file_mod_datetime
-    
-    # Determine if cache is stale
     if age.days > 1 and season >= now.year and now.month <= 7:
         load_from_cache = False
 
-    if load_from_cache:
+    if load_from_cache is True:
         return games_df
 
-    # Scrape the schedule from the team page
-    url = f"https://stats.ncaa.org/teams/{team_id}"
-    response = _get_webpage(url=url)
+    # Always use threading to avoid asyncio conflicts
+    # import concurrent.futures
+    
+    # def get_webpage_in_thread():
+    #     return _get_webpage(url=url)
+    
+    # Run in separate thread to avoid any potential asyncio issues
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    #     future = executor.submit(get_webpage_in_thread)
+    #     response = future.result(timeout=120)  # 2 minute timeout
+    response = _safe_get_webpage(url=url, _timeout=120)
+
     soup = BeautifulSoup(response.text, features="lxml")
 
-    # Get school name if we don't have it yet
-    if not school_name:
-        try:
-            school_name = soup.find("div", {"class": "card"}).find("img").get("alt")
-        except:
-            school_name = f"Team {team_id}"
+    school_name = soup.find("div", {"class": "card"}).find("img").get("alt")
+    season_name = (
+        soup.find("select", {"id": "year_list"})
+        .find("option", {"selected": "selected"})
+        .text
+    )
+    # For NCAA soccer, the season always starts and ends in the fall semester
+    # Thus, if `season_name` = "2011-12", this is the "2011" soccer season,
+    # because soccer runs entirely in the fall semester
+    soup = soup.find_all(
+        "div",
+        {"class": "col p-0"},
+    )
 
-    # Get season name
-    try:
-        season_name = (
-            soup.find("select", {"id": "year_list"})
-            .find("option", {"selected": "selected"})
-            .text
-        )
-    except:
-        season_name = f"{season}-{str(season+1)[-2:]}"
-
-    # Find the schedule table
-    soup_sections = soup.find_all("div", {"class": "col p-0"})
-    
-    table_data = None
-    for s in soup_sections:
+    # declaring it here to prevent potential problems down the road.
+    table_data = ""
+    for s in soup:
         try:
             temp_name = s.find("div", {"class": "card-header"})
             temp_name = temp_name.text
         except Exception as e:
-            logging.warning(f"Could not parse card header. Full exception `{e}`. Attempting alternate method.")
-            try:
-                temp_name = s.find("tr", {"class": "heading"}).find("td").text
-            except:
-                continue
+            logging.warning(
+                f"Could not parse card header. Full exception `{e}`. "
+                + "Attempting alternate method."
+            )
+            temp_name = s.find("tr", {"class": "heading"}).find("td").text
 
         if "schedule" in temp_name.lower():
             table_data = s.find("table")
-            break
 
-    if table_data is None:
-        logging.warning("Could not find schedule table on page")
-        return pd.DataFrame()
-
-    # Parse schedule rows
     t_rows = table_data.find_all("tr", {"class": "underline_rows"})
+
     if len(t_rows) == 0:
         t_rows = table_data.find_all("tr")
 
@@ -638,147 +729,191 @@ def get_soccer_team_schedule(
 
         cells = g.find_all("td")
         if len(cells) <= 1:
+            # Because of how *well* designed
+            # stats.ncaa.org is, if we have to use execute
+            # the `if len(t_rows) == 0:` code,
+            # we need to catch any cases where every element in a
+            # table row (`<tr>`) is a table header (`<th>`),
+            # instead of a table data cell (`<td>`)
             continue
 
-        # Parse game date
-        game_date = cells[0].text.strip()
-        if not game_date or game_date.lower() in ['date', 'game']:
-            continue
+        game_date = cells[0].text
 
-        # Handle game series notation
+        # If "(" is in the same cell as the date,
+        # this means that this game is part of a series.
+        # The number encased in `()` is the game number in the series.
+        # We need to remove that from the date,
+        # and move it into a separate variable.
         if "(" in game_date:
             game_date = game_date.replace(")", "")
             game_date, game_num = game_date.split("(")
             game_date = game_date.strip()
             game_num = int(game_num.strip())
 
-        try:
-            game_date = datetime.strptime(game_date, "%m/%d/%Y").date()
-        except ValueError:
-            continue  # Skip invalid date rows
+        game_date = datetime.strptime(game_date, "%m/%d/%Y").date()
 
-        # Parse opponent
         try:
-            opp_team_link = cells[1].find("a")
-            if opp_team_link:
-                opp_team_id = opp_team_link.get("href")
-                if opp_team_id:
-                    opp_team_id = opp_team_id.replace("/teams/", "")
-                    opp_team_id = int(opp_team_id)
-                else:
-                    opp_team_id = None
+            opp_team_id = cells[1].find("a").get("href")
+        except IndexError:
+            logging.info(
+                "Skipping row because it is clearly "
+                + "not a row that has schedule data."
+            )
+            is_valid_row = False
+        except AttributeError as e:
+            logging.info(
+                "Could not extract a team ID for this game. " +
+                f"Full exception {e}"
+            )
+            opp_team_id = "-1"
+        except Exception as e:
+            logging.warning(
+                "An unhandled exception has occurred when "
+                + "trying to get the opposition team ID for this game. "
+                f"Full exception `{e}`."
+            )
+            raise e
+        if is_valid_row is True:
+            if opp_team_id is not None:
+                opp_team_id = opp_team_id.replace("/teams/", "")
+                opp_team_id = int(opp_team_id)
+
+                try:
+                    opp_team_name = cells[1].find("img").get("alt")
+                except AttributeError:
+                    logging.info(
+                        "Couldn't find the opposition team name "
+                        + "for this row from an image element. "
+                        + "Attempting a backup method"
+                    )
+                    opp_team_name = cells[1].text
+                except Exception as e:
+                    logging.info(
+                        "Unhandled exception when trying to get the "
+                        + "opposition team name from this game. "
+                        + f"Full exception `{e}`"
+                    )
+                    raise e
             else:
-                opp_team_id = None
-        except (IndexError, AttributeError, ValueError):
-            logging.info("Skipping row because it doesn't contain valid team data.")
-            continue
-        except Exception as e:
-            logging.warning(f"Unhandled exception when parsing opponent team ID: {e}")
-            opp_team_id = None
+                opp_team_name = cells[1].text
 
-        # Parse opponent name
-        try:
-            opp_team_name = cells[1].find("img").get("alt")
-        except AttributeError:
-            opp_team_name = cells[1].text.strip()
-        except Exception as e:
-            logging.warning(f"Error parsing opponent name: {e}")
-            continue
+            if opp_team_name[0] == "@":
+                # The logic for determining if this game was a
+                # neutral site game doesn't care if that info is in
+                # `opp_team_name`.
+                opp_team_name = opp_team_name.strip().replace("@", "")
+            elif "@" in opp_team_name:
+                opp_team_name = opp_team_name.strip().split("@")[0]
 
-        # Determine home/away/neutral
-        opp_text = cells[1].text.strip()
-        if "@" in opp_text and opp_text.startswith("@"):
-            is_home_game = False
-            opp_team_name = opp_team_name.replace("@", "").strip()
-        elif "@" in opp_text and not opp_text.startswith("@"):
-            is_neutral_game = True
-            is_home_game = False
-            opp_team_name = opp_text.split("@")[0].strip()
-        elif any(keyword in opp_text.lower() for keyword in ["championship", "ncaa", "tournament"]):
-            is_neutral_game = True
-            is_home_game = False
+            opp_text = cells[1].text
+            opp_text = opp_text.strip()
+            if "@" in opp_text and opp_text[0] == "@":
+                is_home_game = False
+            elif "@" in opp_text and opp_text[0] != "@":
+                is_neutral_game = True
+                is_home_game = False
+            # This is just to cover conference and NCAA championship
+            # tournaments.
+            elif "championship" in opp_text.lower():
+                is_neutral_game = True
+                is_home_game = False
+            elif "ncaa" in opp_text.lower():
+                is_neutral_game = True
+                is_home_game = False
 
-        # Parse score
-        score = cells[2].text.strip()
-        if len(score) == 0 or any(word in score.lower() for word in ["canceled", "ppd", "postponed"]):
-            score_1 = None
-            score_2 = None
-        else:
-            try:
-                # Handle overtime notation
+            del opp_text
+
+            score = cells[2].text.strip()
+            if len(score) == 0:
+                score_1 = 0
+                score_2 = 0
+            elif (
+                "canceled" not in score.lower() and
+                "ppd" not in score.lower()
+            ):
+                # Handle overtime notation in soccer scores
                 score = score.replace("(-3 OT)", "")
-                
-                # Remove win/loss indicators
-                if any(x in score for x in ["W", "L", "T"]):
-                    parts = score.split(" ")
-                    if len(parts) >= 2:
-                        score = parts[1]
-
                 score_1, score_2 = score.split("-")
-                
-                # Handle overtime periods
+
+                # `score_1` should be "W `n`", "L `n`", or "T `n`",
+                # with `n` representing the number of goals this team
+                # scored in this game.
+                # Let's remove the "W", "L", or "T" from `score_1`,
+                # and determine which team won later on in this code.
+                if any(x in score_1 for x in ["W", "L", "T"]):
+                    score_1 = score_1.split(" ")[1]
+
                 if "(" in score_2:
                     score_2 = score_2.replace(")", "")
-                    score_2, ot_text = score_2.split("(")
-                    ot_periods = int(re.findall(r'\d+', ot_text)[0]) if re.findall(r'\d+', ot_text) else 0
+                    score_2, ot_periods = score_2.split("(")
+                    ot_periods = ot_periods.replace("OT", "")
+                    ot_periods = ot_periods.replace(" ", "")
+                    ot_periods = int(ot_periods)
 
-                score_1 = int(score_1.strip())
-                score_2 = int(score_2.strip())
-            except (ValueError, IndexError):
+                if ot_periods is None:
+                    ot_periods = 0
+                score_1 = int(score_1)
+                score_2 = int(score_2)
+            else:
                 score_1 = None
                 score_2 = None
 
-        # Parse game ID and URL
-        try:
-            game_link = cells[2].find("a")
-            if game_link:
-                game_href = game_link.get("href")
-                game_id = int(re.findall(r'/contests/(\d+)', game_href)[0])
-                game_url = f"https://stats.ncaa.org/contests/{game_id}/box_score"
-            else:
+            try:
+                game_id = cells[2].find("a").get("href")
+                game_id = game_id.replace("/contests", "")
+                game_id = game_id.replace("/box_score", "")
+                game_id = game_id.replace("/", "")
+                game_id = int(game_id)
+                game_url = (
+                    f"https://stats.ncaa.org/contests/{game_id}/box_score"
+                )
+
+            except AttributeError as e:
+                logging.info(
+                    "Could not parse a game ID for this game. "
+                    + f"Full exception `{e}`."
+                )
                 game_id = None
                 game_url = None
-        except (AttributeError, IndexError, ValueError):
-            game_id = None
-            game_url = None
-
-        # Parse attendance
-        try:
-            if len(cells) > 3:
-                attendance = cells[3].text.strip().replace(",", "").replace("\n", "")
-                attendance = int(attendance) if attendance.isdigit() else None
-            else:
+            except Exception as e:
+                logging.info(
+                    "An unhandled exception occurred when trying "
+                    + "to find a game ID for this game. "
+                    + f"Full exception `{e}`."
+                )
+                raise e
+            try:
+                attendance = cells[3].text
+                attendance = attendance.replace(",", "")
+                attendance = attendance.replace("\n", "")
+                attendance = int(attendance)
+            except IndexError as e:
+                logging.info(
+                    "It doesn't appear as if there is an attendance column "
+                    + "for this team's schedule table."
+                    f"Full exception `{e}`."
+                )
                 attendance = None
-        except (ValueError, IndexError):
-            attendance = None
+            except ValueError as e:
+                logging.info(
+                    "There doesn't appear as if "
+                    + "there is a recorded attendance. "
+                    + "for this game/row. "
+                    f"Full exception `{e}`."
+                )
+                attendance = None
 
-        # Create game record
-        if is_home_game:
-            temp_df = pd.DataFrame({
-                "season": season,
-                "season_name": season_name,
-                "game_id": game_id,
-                "game_date": game_date,
-                "game_num": game_num,
-                "ot_periods": ot_periods,
-                "home_team_id": team_id,
-                "home_team_name": school_name,
-                "away_team_id": opp_team_id,
-                "away_team_name": opp_team_name,
-                "home_team_score": score_1,
-                "away_team_score": score_2,
-                "is_neutral_game": is_neutral_game,
-                "game_url": game_url,
-                "attendance": attendance,
-            }, index=[0])
-        elif is_neutral_game:
-            # Order team IDs for consistent neutral game representation
-            if opp_team_id and team_id:
-                t_ids = [opp_team_id, team_id]
-                t_ids.sort()
-                
-                if t_ids[0] == team_id:
-                    temp_df = pd.DataFrame({
+            except Exception as e:
+                logging.info(
+                    "An unhandled exception occurred when trying "
+                    + "to find this game's attendance. "
+                    + f"Full exception `{e}`."
+                )
+                raise e
+
+            if is_home_game is True:
+                temp_df = pd.DataFrame(
+                    {
                         "season": season,
                         "season_name": season_name,
                         "game_id": game_id,
@@ -793,10 +928,71 @@ def get_soccer_team_schedule(
                         "away_team_score": score_2,
                         "is_neutral_game": is_neutral_game,
                         "game_url": game_url,
-                        "attendance": attendance,
-                    }, index=[0])
+                    },
+                    index=[0],
+                )
+                games_df_arr.append(temp_df)
+                del temp_df
+            elif is_neutral_game is True:
+                # For the sake of simplicity,
+                # order both team ID's,
+                # and set the lower number of the two as
+                # the "away" team in this neutral site game,
+                # just so there's no confusion if someone
+                # combines a ton of these team schedule `DataFrame`s,
+                # and wants to remove duplicates afterwards.
+                t_ids = [opp_team_id, team_id]
+                t_ids.sort()
+
+                if t_ids[0] == team_id:
+                    # home
+                    temp_df = pd.DataFrame(
+                        {
+                            "season": season,
+                            "season_name": season_name,
+                            "game_id": game_id,
+                            "game_date": game_date,
+                            "game_num": game_num,
+                            "ot_periods": ot_periods,
+                            "home_team_id": team_id,
+                            "home_team_name": school_name,
+                            "away_team_id": opp_team_id,
+                            "away_team_name": opp_team_name,
+                            "home_team_score": score_1,
+                            "away_team_score": score_2,
+                            "is_neutral_game": is_neutral_game,
+                            "game_url": game_url,
+                        },
+                        index=[0],
+                    )
+
                 else:
-                    temp_df = pd.DataFrame({
+                    # away
+                    temp_df = pd.DataFrame(
+                        {
+                            "season": season,
+                            "season_name": season_name,
+                            "game_id": game_id,
+                            "game_date": game_date,
+                            "game_num": game_num,
+                            "ot_periods": ot_periods,
+                            "home_team_id": opp_team_id,
+                            "home_team_name": opp_team_name,
+                            "away_team_id": team_id,
+                            "away_team_name": school_name,
+                            "home_team_score": score_2,
+                            "away_team_score": score_1,
+                            "is_neutral_game": is_neutral_game,
+                            "game_url": game_url,
+                        },
+                        index=[0],
+                    )
+
+                games_df_arr.append(temp_df)
+                del temp_df
+            else:
+                temp_df = pd.DataFrame(
+                    {
                         "season": season,
                         "season_name": season_name,
                         "game_id": game_id,
@@ -811,516 +1007,51 @@ def get_soccer_team_schedule(
                         "away_team_score": score_1,
                         "is_neutral_game": is_neutral_game,
                         "game_url": game_url,
-                        "attendance": attendance,
-                    }, index=[0])
-            else:
-                # Fallback if opp_team_id is None
-                temp_df = pd.DataFrame({
-                    "season": season,
-                    "season_name": season_name,
-                    "game_id": game_id,
-                    "game_date": game_date,
-                    "game_num": game_num,
-                    "ot_periods": ot_periods,
-                    "home_team_id": team_id,
-                    "home_team_name": school_name,
-                    "away_team_id": opp_team_id,
-                    "away_team_name": opp_team_name,
-                    "home_team_score": score_1,
-                    "away_team_score": score_2,
-                    "is_neutral_game": is_neutral_game,
-                    "game_url": game_url,
-                    "attendance": attendance,
-                }, index=[0])
-        else:  # Away game
-            temp_df = pd.DataFrame({
-                "season": season,
-                "season_name": season_name,
-                "game_id": game_id,
-                "game_date": game_date,
-                "game_num": game_num,
-                "ot_periods": ot_periods,
-                "home_team_id": opp_team_id,
-                "home_team_name": opp_team_name,
-                "away_team_id": team_id,
-                "away_team_name": school_name,
-                "home_team_score": score_2,
-                "away_team_score": score_1,
-                "is_neutral_game": is_neutral_game,
-                "game_url": game_url,
-                "attendance": attendance,
-            }, index=[0])
+                    },
+                    index=[0],
+                )
 
-        games_df_arr.append(temp_df)
+                games_df_arr.append(temp_df)
+                del temp_df
 
-    if not games_df_arr:
-        return pd.DataFrame()
-
-    # Combine all games
     games_df = pd.concat(games_df_arr, ignore_index=True)
 
-    # Merge with school information
-    temp_df = schools_df.rename(columns={
-        "school_name": "home_team_name",
-        "school_id": "home_school_id"
-    })
+    temp_df = schools_df.rename(
+        columns={
+            "school_name": "home_team_name",
+            "school_id": "home_school_id"
+        }
+    )
     games_df = games_df.merge(right=temp_df, on="home_team_name", how="left")
 
-    temp_df = schools_df.rename(columns={
-        "school_name": "away_team_name", 
-        "school_id": "away_school_id"
-    })
+    temp_df = schools_df.rename(
+        columns={
+            "school_name": "away_team_name",
+            "school_id": "away_school_id"
+        }
+    )
     games_df = games_df.merge(right=temp_df, on="away_team_name", how="left")
-    
-    # Add division information
     games_df["ncaa_division"] = ncaa_division
     games_df["ncaa_division_formatted"] = ncaa_division_formatted
 
-    # Save to cache
-    games_df.to_csv(cache_file, index=False)
+    games_df.to_csv(
+        f"{home_dir}/.ncaa_stats_py/"
+        + f"soccer_{sport_id}/team_schedule/"
+        + f"{team_id}_team_schedule.csv",
+        index=False,
+    )
 
     return games_df
+
 
 def get_soccer_day_schedule(
     game_date: str | date | datetime,
     level: str | int = "I",
     get_womens_soccer_data: bool = False
-) -> pd.DataFrame:
-    """
-    Given a date and NCAA level, this function retrieves every soccer game
-    for that date.
+):
+    # Placeholder: implement similar to lacrosse.get_lacrosse_day_schedule
+    pass
 
-    Parameters
-    ----------
-    `game_date` (str | date | datetime, mandatory):
-        Required argument.
-        Specifies the date you want a soccer schedule from.
-        For best results, pass a string formatted as "YYYY-MM-DD".
-
-    `level` (str | int, optional):
-        Optional argument (default: "I").
-        Specifies the level/division you want a
-        NCAA soccer schedule from.
-        This can either be an integer (1-3) or a string ("I"-"III").
-
-    `get_womens_soccer_data` (bool, optional):
-        Optional argument (default: False).
-        If you want women's soccer data instead of men's soccer data,
-        set this to `True`.
-
-    Usage
-    ----------
-    ```python
-
-    from ncaa_stats_py.soccer import get_soccer_day_schedule
-
-    ###########################################
-    #              Men's soccer               #
-    ###########################################
-
-    # Get all DI games that will be played on September 8th, 2025.
-    print("Get all games that will be played on September 8th, 2025.")
-    df = get_soccer_day_schedule("2025-09-08", level=1)
-    print(df)
-
-    # Get all division III games will be played on October 15th, 2025.
-    print("Get all division III games will be played on October 15th, 2025.")
-    df = get_soccer_day_schedule("2025-10-15", level="III")
-    print(df)
-
-    # Get all DI games that were played on November 27th, 2024.
-    print("Get all games that were played on November 27th, 2024.")
-    df = get_soccer_day_schedule("2024-11-27", level="I")
-    print(df)
-
-    # Get all DI games (if any) that were played on September 23rd, 2024.
-    print("Get all DI games (if any) that were played on September 23rd, 2024.")
-    df = get_soccer_day_schedule("2024-09-23")
-    print(df)
-
-    # Get all DIII games played on October 9th, 2024.
-    print("Get all DIII games played on October 9th, 2024.")
-    df = get_soccer_day_schedule("2024-10-09", level="III")
-    print(df)
-
-    ###########################################
-    #             Women's soccer              #
-    ###########################################
-
-    # Get all DI games that will be played on September 8th, 2025.
-    print("Get all games that will be played on September 8th, 2025.")
-    df = get_soccer_day_schedule(
-        "2025-09-08", level=1, get_womens_soccer_data=True
-    )
-    print(df)
-
-    # Get all division III games will be played on October 15th, 2025.
-    print("Get all division III games will be played on October 15th, 2025.")
-    df = get_soccer_day_schedule(
-        "2025-10-15", level="III", get_womens_soccer_data=True
-    )
-    print(df)
-
-    # Get all DI games that were played on November 27th, 2024.
-    print("Get all games that were played on November 27th, 2024.")
-    df = get_soccer_day_schedule(
-        "2024-11-27", level="I", get_womens_soccer_data=True
-    )
-    print(df)
-
-    ```
-
-    Returns
-    ----------
-    A pandas `DataFrame` object with all soccer games played on that day,
-    for that NCAA division/level.
-
-    """
-    from dateutil import parser
-    from pytz import timezone
-    
-    season = 0
-    sport_id = "MSO"
-
-    schedule_df = pd.DataFrame()
-    schedule_df_arr = []
-
-    # Parse the input date
-    if isinstance(game_date, date):
-        game_datetime = datetime.combine(
-            game_date, datetime.min.time()
-        )
-    elif isinstance(game_date, datetime):
-        game_datetime = game_date
-    elif isinstance(game_date, str):
-        game_datetime = parser.parse(game_date)
-    else:
-        unhandled_datatype = type(game_date)
-        raise ValueError(
-            f"Unhandled datatype for `game_date`: `{unhandled_datatype}`"
-        )
-
-    # Parse the level parameter
-    if isinstance(level, int) and level == 1:
-        formatted_level = "I"
-        ncaa_level = 1
-    elif isinstance(level, int) and level == 2:
-        formatted_level = "II"
-        ncaa_level = 2
-    elif isinstance(level, int) and level == 3:
-        formatted_level = "III"
-        ncaa_level = 3
-    elif isinstance(level, str) and (
-        level.lower() in {"i", "d1", "1"}
-    ):
-        ncaa_level = 1
-        formatted_level = "I"
-    elif isinstance(level, str) and (
-        level.lower() in {"ii", "d2", "2"}
-    ):
-        ncaa_level = 2
-        formatted_level = "II"
-    elif isinstance(level, str) and (
-        level.lower() in {"iii", "d3", "3"}
-    ):
-        ncaa_level = 3
-        formatted_level = "III"
-    else:
-        raise ValueError(f"Invalid 'level' parameter: {level}")
-
-    # Set sport ID based on gender
-    if get_womens_soccer_data is True:
-        sport_id = "WSO"
-    elif get_womens_soccer_data is False:
-        sport_id = "MSO"
-    else:
-        raise ValueError(
-            f"Unhandled value for `get_womens_soccer_data`: `{get_womens_soccer_data}`"
-        )
-
-    # Determine season based on date
-    # Soccer season runs in fall, so academic year calculation differs from spring sports
-    game_month = game_datetime.month
-    game_day = game_datetime.day
-    game_year = game_datetime.year
-
-    # For soccer: August-December games are in academic year starting that year
-    # January-July games are in academic year that started the previous year
-    if game_month >= 8:  # August through December
-        season = game_year + 1  # Academic year 2025-26 for fall 2025 games
-    else:  # January through July
-        season = game_year  # Academic year 2025-26 for spring 2025 games
-
-    # Build URL for NCAA stats scoreboard
-    url = (
-        "https://stats.ncaa.org/contests/" +
-        f"livestream_scoreboards?utf8=%E2%9C%93&sport_code={sport_id}" +
-        f"&academic_year={season}&division={ncaa_level}" +
-        f"&game_date={game_month:02d}%2F{game_day:02d}%2F{game_year}" +
-        "&commit=Submit"
-    )
-
-    response = _get_webpage(url=url)
-    soup = BeautifulSoup(response.text, features="lxml")
-
-    game_boxes = soup.find_all("div", {"class": "table-responsive"})
-
-    for box in game_boxes:
-        game_id = None
-        game_alt_text = None
-        game_num = 1
-        ot_periods = 0
-        
-        table_box = box.find("table")
-        if table_box is None:
-            continue
-            
-        table_rows = table_box.find_all("tr")
-        if len(table_rows) < 2:
-            continue
-
-        # Parse date/attendance from first row
-        try:
-            game_date_str = table_rows[0].find("div", {"class": "col-6 p-0"}).text
-            game_date_str = game_date_str.replace("\n", "").strip()
-            game_date_str = game_date_str.replace("TBA ", "TBA")
-            game_date_str = game_date_str.replace("TBD ", "TBD")
-            game_date_str = game_date_str.replace("PM ", "PM")
-            game_date_str = game_date_str.replace("AM ", "AM")
-            game_date_str = game_date_str.strip()
-        except (AttributeError, IndexError):
-            continue
-
-        try:
-            attendance_str = table_rows[0].find(
-                "div", {"class": "col p-0 text-right"}
-            ).text
-            attendance_str = attendance_str.replace("Attend:", "")
-            attendance_str = attendance_str.replace(",", "")
-            attendance_str = attendance_str.replace("\n", "").strip()
-            
-            if (
-                any(x in attendance_str.lower() for x in ["st", "nd", "rd", "th"]) or
-                "final" in attendance_str.lower() or
-                len(attendance_str) == 0
-            ):
-                attendance_num = None
-            else:
-                try:
-                    attendance_num = int(attendance_str)
-                except ValueError:
-                    attendance_num = None
-        except (AttributeError, IndexError):
-            attendance_num = None
-
-        # Handle game series notation
-        if "(" in game_date_str:
-            game_date_str = game_date_str.replace(")", "")
-            game_date_str, game_num = game_date_str.split("(")
-            game_num = int(game_num)
-
-        # Parse game datetime
-        try:
-            if "TBA" in game_date_str or "TBD" in game_date_str:
-                game_datetime_parsed = datetime.strptime(
-                    game_date_str.split()[0], '%m/%d/%Y'
-                )
-            elif ":" not in game_date_str:
-                game_date_str = game_date_str.replace(" ", "")
-                game_datetime_parsed = datetime.strptime(game_date_str, '%m/%d/%Y')
-            else:
-                game_datetime_parsed = datetime.strptime(
-                    game_date_str, '%m/%d/%Y %I:%M %p'
-                )
-            
-            # Convert to Eastern timezone
-            game_datetime_parsed = game_datetime_parsed.replace(
-                tzinfo=timezone("US/Eastern")
-            )
-        except ValueError:
-            continue
-
-        # Get game alternative text/description
-        try:
-            game_alt_text = table_rows[1].find_all("td")[0].text
-            if game_alt_text is not None and len(game_alt_text) > 0:
-                game_alt_text = game_alt_text.replace("\n", "").strip()
-            if len(game_alt_text) == 0:
-                game_alt_text = None
-        except (AttributeError, IndexError):
-            game_alt_text = None
-
-        # Find game ID from links or row IDs
-        urls_arr = box.find_all("a")
-        for u in urls_arr:
-            url_temp = u.get("href")
-            if url_temp and "contests" in url_temp:
-                game_id = url_temp
-                break
-
-        if game_id is None:
-            for r in range(len(table_rows)):
-                temp = table_rows[r]
-                temp_id = temp.get("id")
-                if temp_id is not None and len(temp_id) > 0:
-                    game_id = temp_id
-                    break
-
-        if game_id is None:
-            continue
-
-        # Clean up game ID
-        game_id = game_id.replace("/contests", "")
-        game_id = game_id.replace("/box_score", "")
-        game_id = game_id.replace("/livestream_scoreboards", "")
-        game_id = game_id.replace("/", "")
-        game_id = game_id.replace("contest_", "")
-        try:
-            game_id = int(game_id)
-        except ValueError:
-            continue
-
-        # Find team rows
-        team_rows = table_box.find_all("tr", {"id": f"contest_{game_id}"})
-        if len(team_rows) < 2:
-            # Try alternative method - look for rows with team data
-            team_rows = []
-            for row in table_rows:
-                if row.find("td") and len(row.find_all("td")) >= 3:
-                    team_rows.append(row)
-            
-            if len(team_rows) < 2:
-                continue
-                
-        away_team_row = team_rows[0]
-        home_team_row = team_rows[1]
-
-        # Parse away team information
-        try:
-            away_td_arr = away_team_row.find_all("td")
-            if len(away_td_arr) < 2:
-                continue
-
-            # Get away team name
-            try:
-                away_team_name = away_td_arr[0].find("img").get("alt")
-            except (AttributeError, IndexError):
-                away_team_name = away_td_arr[1].text if len(away_td_arr) > 1 else away_td_arr[0].text
-            away_team_name = away_team_name.replace("\n", "").strip()
-
-            # Get away team ID
-            try:
-                away_team_link = away_td_arr[1].find("a")
-                if away_team_link:
-                    away_team_id = away_team_link.get("href")
-                    away_team_id = away_team_id.replace("/teams/", "")
-                    away_team_id = int(away_team_id)
-                else:
-                    away_team_id = None
-            except (AttributeError, ValueError, IndexError):
-                away_team_id = None
-
-            # Get away team score
-            away_score = away_td_arr[-1].text.replace("\n", "").replace("\xa0", "").strip()
-            
-            if any(word in away_score.lower() for word in ["canceled", "ppd", "postponed"]):
-                continue
-            
-            # Handle overtime notation in scores
-            if "(" in away_score and "OT" in away_score:
-                score_parts = away_score.split("(")
-                away_score = score_parts[0].strip()
-                ot_text = score_parts[1].replace(")", "").strip()
-                ot_periods = int(re.findall(r'\d+', ot_text)[0]) if re.findall(r'\d+', ot_text) else 1
-
-            try:
-                away_goals_scored = int(away_score) if away_score else 0
-            except ValueError:
-                away_goals_scored = 0
-
-        except (AttributeError, IndexError):
-            continue
-
-        # Parse home team information
-        try:
-            home_td_arr = home_team_row.find_all("td")
-            if len(home_td_arr) < 2:
-                continue
-
-            # Get home team name
-            try:
-                home_team_name = home_td_arr[0].find("img").get("alt")
-            except (AttributeError, IndexError):
-                home_team_name = home_td_arr[1].text if len(home_td_arr) > 1 else home_td_arr[0].text
-            home_team_name = home_team_name.replace("\n", "").strip()
-
-            # Get home team ID
-            try:
-                home_team_link = home_td_arr[1].find("a")
-                if home_team_link:
-                    home_team_id = home_team_link.get("href")
-                    home_team_id = home_team_id.replace("/teams/", "")
-                    home_team_id = int(home_team_id)
-                else:
-                    home_team_id = None
-            except (AttributeError, ValueError, IndexError):
-                home_team_id = None
-
-            # Get home team score
-            home_score = home_td_arr[-1].text.replace("\n", "").replace("\xa0", "").strip()
-            
-            # Handle overtime notation in scores (if not already handled)
-            if "(" in home_score and "OT" in home_score and ot_periods == 0:
-                score_parts = home_score.split("(")
-                home_score = score_parts[0].strip()
-                ot_text = score_parts[1].replace(")", "").strip()
-                ot_periods = int(re.findall(r'\d+', ot_text)[0]) if re.findall(r'\d+', ot_text) else 1
-
-            try:
-                home_goals_scored = int(home_score) if home_score else 0
-            except ValueError:
-                home_goals_scored = 0
-
-        except (AttributeError, IndexError):
-            continue
-
-        # Create DataFrame row for this game
-        temp_df = pd.DataFrame({
-            "season": season,
-            "sport_id": sport_id,
-            "game_date": game_datetime_parsed.strftime("%Y-%m-%d"),
-            "game_datetime": game_datetime_parsed.isoformat(),
-            "game_id": game_id,
-            "game_num": game_num,
-            "ot_periods": ot_periods,
-            "formatted_level": formatted_level,
-            "ncaa_level": ncaa_level,
-            "game_alt_text": game_alt_text,
-            "away_team_id": away_team_id,
-            "away_team_name": away_team_name,
-            "home_team_id": home_team_id,
-            "home_team_name": home_team_name,
-            "home_goals_scored": home_goals_scored,
-            "away_goals_scored": away_goals_scored,
-            "attendance": attendance_num
-        }, index=[0])
-        
-        schedule_df_arr.append(temp_df)
-
-    # Combine all games into a single DataFrame
-    if len(schedule_df_arr) >= 1:
-        schedule_df = pd.concat(schedule_df_arr, ignore_index=True)
-    else:
-        logging.warning(
-            f"Could not find any game(s) for "
-            f"{game_datetime.year:04d}-{game_datetime.month:02d}"
-            f"-{game_datetime.day:02d}. "
-            f"If you believe this is an error, "
-            f"please raise an issue at "
-            f"\n https://github.com/armstjc/ncaa_stats_py/issues \n"
-        )
-        
-    return schedule_df
 
 def get_full_soccer_schedule(
     season: int,
@@ -1330,438 +1061,10 @@ def get_full_soccer_schedule(
     # Placeholder: implement full season aggregation
     pass
 
-def get_soccer_team_roster(
-    team_id: int, 
-    season: int, 
-    get_womens_soccer_data: bool = False
-) -> pd.DataFrame:
-    """
-    Retrieves a soccer team's roster from a given team ID.
 
-    Parameters
-    ----------
-    `team_id` (int, mandatory):
-        Required argument.
-        Specifies the team you want a roster from.
-        This is separate from a school ID, which identifies the institution.
-        A team ID should be unique to a school, and a season.
+def get_soccer_team_roster(team_id: int) -> pd.DataFrame:
+    pass
 
-    `season` (int, mandatory):
-        Required argument.
-        The season year (e.g., 2025 for Fall 2025 season).
-
-    `get_womens_soccer_data` (bool, optional):
-        Optional argument (default: False).
-        If you want women's soccer data instead of men's soccer data,
-        set this to `True`.
-
-    Usage
-    ----------
-    ```python
-
-    from ncaa_stats_py.soccer import get_soccer_team_roster
-
-    ########################################
-    #          Men's soccer                #
-    ########################################
-
-    # Get the soccer roster for the
-    # 2024 UNC MLA team (D1, ID: 571437).
-    print(
-        "Get the soccer roster for the " +
-        "2024 UNC MSO team (D1, ID: 571437)."
-    )
-    df = get_soccer_team_roster(571437, 2024)
-    print(df)
-
-    # Get the soccer roster for the
-    # 2023 Duke MSO team (D1, ID: 546974).
-    print(
-        "Get the soccer roster for the " +
-        "2023 Duke MSO team (D1, ID: 546974)."
-    )
-    df = get_soccer_team_roster(546974, 2023)
-    print(df)
-
-    ########################################
-    #          Women's soccer              #
-    ########################################
-
-    # Get the soccer roster for the
-    # 2024 Stanford WSO team (D1, ID: 571908).
-    print(
-        "Get the soccer roster for the " +
-        "2024 Stanford WSO team (D1, ID: 571908)."
-    )
-    df = get_soccer_team_roster(571908, 2024, get_womens_soccer_data=True)
-    print(df)
-
-    # Get the soccer roster for the
-    # 2023 UCLA WSO team (D1, ID: 546455).
-    print(
-        "Get the soccer roster for the " +
-        "2023 UCLA WSO team (D1, ID: 546455)."
-    )
-    df = get_soccer_team_roster(546455, 2023, get_womens_soccer_data=True)
-    print(df)
-
-    ```
-
-    Returns
-    ----------
-    A pandas `DataFrame` object with
-    an NCAA soccer team's roster for that season.
-    """
-    # Set sport_id based on parameter
-    sport_id = "WSO" if get_womens_soccer_data else "MSO"
-    
-    roster_df = pd.DataFrame()
-    roster_df_arr = []
-    temp_df = pd.DataFrame()
-    url = f"https://stats.ncaa.org/teams/{team_id}/roster"
-    load_from_cache = True
-    home_dir = expanduser("~")
-    home_dir = _format_folder_str(home_dir)
-
-    stat_columns = [
-        "season",
-        "season_name",
-        "sport_id",
-        "ncaa_division",
-        "ncaa_division_formatted",
-        "team_conference_name",
-        "school_id",
-        "school_name",
-        "player_id",
-        "player_jersey_num",
-        "player_full_name",
-        "player_first_name",
-        "player_last_name",
-        "player_class",
-        "player_positions",
-        "player_height_string",
-        "player_weight",
-        "player_hometown",
-        "player_high_school",
-        "player_G",
-        "player_GS",
-        "player_url",
-    ]
-
-    # Try to get team info from teams cache
-    team_info_found = False
-    ncaa_division = 1
-    ncaa_division_formatted = "I"
-    team_conference_name = ""
-    school_name = None
-    school_id = None
-
-    try:
-        # Load teams for the specified sport and find the team
-        teams_df = get_soccer_teams(season, "I", get_womens_soccer_data=get_womens_soccer_data)
-        if not teams_df.empty:
-            team_row = teams_df[teams_df["team_id"] == team_id]
-            if not team_row.empty:
-                ncaa_division = team_row["ncaa_division"].iloc[0]
-                ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
-                team_conference_name = team_row["team_conference_name"].iloc[0] if pd.notna(team_row["team_conference_name"].iloc[0]) else ""
-                school_name = team_row["school_name"].iloc[0]
-                school_id = int(team_row["school_id"].iloc[0]) if pd.notna(team_row["school_id"].iloc[0]) else None
-                team_info_found = True
-                logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
-        
-        # If not found in Division I, try other divisions
-        if not team_info_found:
-            for div in ["II", "III"]:
-                teams_df = get_soccer_teams(season, div, get_womens_soccer_data=get_womens_soccer_data)
-                if not teams_df.empty:
-                    team_row = teams_df[teams_df["team_id"] == team_id]
-                    if not team_row.empty:
-                        ncaa_division = team_row["ncaa_division"].iloc[0]
-                        ncaa_division_formatted = team_row["ncaa_division_formatted"].iloc[0]
-                        team_conference_name = team_row["team_conference_name"].iloc[0] if pd.notna(team_row["team_conference_name"].iloc[0]) else ""
-                        school_name = team_row["school_name"].iloc[0]
-                        school_id = int(team_row["school_id"].iloc[0]) if pd.notna(team_row["school_id"].iloc[0]) else None
-                        team_info_found = True
-                        logging.info(f"Found team {team_id} in Division {ncaa_division_formatted} teams cache")
-                        break
-                        
-    except Exception as e:
-        logging.warning(f"Could not find team in teams cache: {e}")
-
-    # Ensure cache directories exist
-    import os
-    base_cache_dir = f"{home_dir}/.ncaa_stats_py"
-    soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
-    rosters_cache_dir = f"{soccer_cache_dir}/rosters"
-    
-    for d in [base_cache_dir, soccer_cache_dir, rosters_cache_dir]:
-        if not os.path.exists(d):
-            os.makedirs(d)
-
-    cache_file = f"{rosters_cache_dir}/{team_id}_roster.csv"
-
-    # Check if we should load from cache
-    if os.path.exists(cache_file):
-        roster_df = pd.read_csv(cache_file)
-        file_mod_datetime = datetime.fromtimestamp(os.path.getmtime(cache_file))
-    else:
-        file_mod_datetime = datetime.today()
-        load_from_cache = False
-
-    now = datetime.today()
-    age = now - file_mod_datetime
-
-    # Cache is valid for 14 days for current season teams
-    if age.days >= 14 and season >= now.year:
-        load_from_cache = False
-
-    if load_from_cache:
-        return roster_df
-
-    # Scrape the roster from the team page
-    response = _get_webpage(url=url)
-    soup = BeautifulSoup(response.text, features="lxml")
-    
-    # Get school name from page if we don't have it from cache
-    if not school_name:
-        try:
-            school_name = soup.find("div", {"class": "card"}).find("img").get("alt")
-        except Exception:
-            try:
-                school_name = soup.find("div", {"class": "card"}).find("a").text
-                school_name = school_name.rsplit(" ", maxsplit=1)[0]
-            except Exception:
-                school_name = f"Team {team_id}"
-
-    # Get season name
-    try:
-        season_name = (
-            soup.find("select", {"id": "year_list"})
-            .find("option", {"selected": "selected"})
-            .text
-        )
-    except Exception:
-        # Fallback season name format
-        season_name = f"{season}-{str(season+1)[-2:]}"
-
-    # Find the roster table
-    try:
-        # Try multiple table selectors based on the HTML structure
-        table = soup.find("table", {"id": "rosters_form_players_16900_data_table"})
-        if table is None:
-            table = soup.find("table", {"class": "dataTable small_font no_padding"})
-        if table is None:
-            table = soup.find("table", {"class": "dataTable small_font"})
-        if table is None:
-            # Try finding any table with an ID containing "data_table"
-            table = soup.find("table", {"id": lambda x: x and "data_table" in x})
-        if table is None:
-            # Try finding any table with dataTable class
-            table = soup.find("table", {"class": lambda x: x and "dataTable" in x})
-        if table is None:
-            # Last resort: find any table
-            table = soup.find("table")
-            
-        if table is None:
-            logging.warning(f"Could not find roster table for team {team_id}")
-            return pd.DataFrame()
-
-        thead = table.find("thead")
-        if thead:
-            table_headers = thead.find_all("th")
-            table_headers = [x.text.strip() for x in table_headers]
-        else:
-            # If no thead, try to get headers from first row
-            first_row = table.find("tr")
-            if first_row:
-                table_headers = [th.text.strip() for th in first_row.find_all(["th", "td"])]
-            else:
-                logging.error(f"Could not find table headers for team {team_id}")
-                return pd.DataFrame()
-
-        logging.info(f"Found table with headers: {table_headers}")
-
-    except Exception as e:
-        logging.error(f"Could not parse roster table headers: {e}")
-        return pd.DataFrame()
-
-    # Parse roster rows
-    try:
-        tbody = table.find("tbody")
-        if tbody is None:
-            # If no tbody, get all rows except first (header)
-            all_rows = table.find_all("tr")
-            t_rows = all_rows[1:] if len(all_rows) > 1 else []
-        else:
-            t_rows = tbody.find_all("tr")
-
-        logging.info(f"Found {len(t_rows)} roster rows")
-
-        for row_idx, t in enumerate(t_rows):
-            t_cells = t.find_all("td")
-            if len(t_cells) == 0:
-                logging.debug(f"Skipping row {row_idx}: no td cells")
-                continue
-                
-            t_cells_text = [x.text.strip() for x in t_cells]
-
-            # Skip empty rows or header rows
-            if len(t_cells_text) == 0 or all(cell == "" for cell in t_cells_text):
-                logging.debug(f"Skipping row {row_idx}: empty or all blank cells")
-                continue
-
-            logging.debug(f"Processing row {row_idx} with {len(t_cells_text)} cells: {t_cells_text[:3]}...")
-
-            # Handle the specific NCAA soccer roster format
-            # Expected columns: GP, GS, #, Name, Class, Position, Height, Hometown, High School
-            if len(t_cells_text) >= len(table_headers):
-                temp_df = pd.DataFrame(
-                    data=[t_cells_text[:len(table_headers)]],
-                    columns=table_headers
-                )
-            else:
-                # Pad with empty strings if row has fewer cells
-                padded_data = t_cells_text + [""] * (len(table_headers) - len(t_cells_text))
-                temp_df = pd.DataFrame(
-                    data=[padded_data],
-                    columns=table_headers
-                )
-
-            # Get player ID and URL from the link in the Name column
-            try:
-                # Look for any link in this row (player links)
-                player_link = t.find("a")
-                if player_link:
-                    player_href = player_link.get("href")
-                    if player_href and "/players/" in player_href:
-                        temp_df["player_url"] = f"https://stats.ncaa.org{player_href}"
-                        
-                        # Extract player ID from URL (/players/10001471 -> 10001471)
-                        player_id_str = player_href.replace("/players/", "").replace("/", "")
-                        player_id = int(player_id_str)
-                        temp_df["player_id"] = player_id
-                        
-                        # Also get the clean player name from the link text
-                        player_name = player_link.text.strip()
-                        if player_name and "Name" in temp_df.columns:
-                            temp_df["Name"] = player_name
-                        
-                        logging.debug(f"Found player: {player_name} (ID: {player_id})")
-                    else:
-                        temp_df["player_url"] = None
-                        temp_df["player_id"] = None
-                else:
-                    temp_df["player_url"] = None
-                    temp_df["player_id"] = None
-                    logging.debug(f"No player link found in row {row_idx}")
-            except (ValueError, AttributeError, IndexError) as e:
-                logging.debug(f"Error extracting player info from row {row_idx}: {e}")
-                temp_df["player_url"] = None
-                temp_df["player_id"] = None
-
-            roster_df_arr.append(temp_df)
-
-    except Exception as e:
-        logging.error(f"Could not parse roster table rows: {e}")
-        return pd.DataFrame()
-
-    if not roster_df_arr:
-        logging.warning(f"No roster data found for team {team_id}")
-        return pd.DataFrame()
-
-    # Combine all player rows
-    roster_df = pd.concat(roster_df_arr, ignore_index=True)
-    roster_df = roster_df.infer_objects()
-
-    # Add team metadata
-    roster_df["season"] = season
-    roster_df["season_name"] = season_name
-    roster_df["ncaa_division"] = ncaa_division
-    roster_df["ncaa_division_formatted"] = ncaa_division_formatted
-    roster_df["team_conference_name"] = team_conference_name
-    roster_df["school_id"] = school_id
-    roster_df["school_name"] = school_name
-    roster_df["sport_id"] = sport_id
-
-    # Standardize column names to match expected format
-    column_mapping = {
-        "GP": "player_G",
-        "GS": "player_GS", 
-        "G": "player_G",
-        "#": "player_jersey_num",
-        "No.": "player_jersey_num",
-        "Jersey": "player_jersey_num",
-        "Name": "player_full_name",
-        "Player": "player_full_name",
-        "Class": "player_class",
-        "Cl": "player_class",
-        "Year": "player_class",
-        "Position": "player_positions",
-        "Pos": "player_positions",
-        "Height": "player_height_string",
-        "Ht": "player_height_string",
-        "Weight": "player_weight",
-        "Wt": "player_weight",
-        "Hometown": "player_hometown",
-        "Home Town": "player_hometown",
-        "High School": "player_high_school",
-        "Previous School": "player_high_school",
-        "Prev School": "player_high_school",
-    }
-    
-    roster_df.rename(columns=column_mapping, inplace=True)
-
-    # Split full name into first and last name
-    if "player_full_name" in roster_df.columns:
-        name_split = roster_df["player_full_name"].str.split(" ", n=1, expand=True)
-        if name_split.shape[1] >= 2:
-            roster_df["player_first_name"] = name_split[0]
-            roster_df["player_last_name"] = name_split[1]
-        else:
-            roster_df["player_first_name"] = name_split[0] if name_split.shape[1] > 0 else ""
-            roster_df["player_last_name"] = ""
-    
-    # Convert GP and GS to numeric, handling non-numeric values
-    for col in ["player_G", "player_GS"]:
-        if col in roster_df.columns:
-            roster_df[col] = pd.to_numeric(roster_df[col], errors='coerce')
-
-    # Convert jersey number to numeric
-    if "player_jersey_num" in roster_df.columns:
-        roster_df["player_jersey_num"] = pd.to_numeric(roster_df["player_jersey_num"], errors='coerce')
-
-    # Clean up weight column if present
-    if "player_weight" in roster_df.columns:
-        # Remove non-numeric characters and convert to int
-        roster_df["player_weight"] = roster_df["player_weight"].astype(str).str.extract(r'(\d+)').astype(float)
-
-    # Ensure all expected columns exist with proper defaults
-    for col in stat_columns:
-        if col not in roster_df.columns:
-            if col in ["player_G", "player_GS", "player_weight", "player_jersey_num"]:
-                roster_df[col] = None  # Numeric columns
-            elif col == "player_id":
-                roster_df[col] = None  # Keep as None for missing IDs
-            else:
-                roster_df[col] = ""  # String columns
-
-    # Validate columns and reorder
-    final_columns = []
-    for col in stat_columns:
-        if col in roster_df.columns:
-            final_columns.append(col)
-        else:
-            logging.warning(f"Expected column {col} not found in roster data")
-
-    # Only keep expected columns
-    roster_df = roster_df.reindex(columns=final_columns)
-    roster_df = roster_df.infer_objects()
-
-    # Save to cache
-    roster_df.to_csv(cache_file, index=False)
-
-    return roster_df
 
 def get_soccer_player_season_stats(
     team_id: int,
@@ -1975,7 +1278,7 @@ def get_soccer_team_stats(
         + f"&sport_code={sport_id}"
     )
 
-    response = _get_webpage(url=url)
+    response = _safe_get_webpage(url=url, _timeout=120)
     soup = BeautifulSoup(response.text, features="lxml")
     
     # Find the ranking periods
@@ -2008,7 +1311,7 @@ def get_soccer_team_stats(
         team_url = f"https://stats.ncaa.org/teams/{team_id}"
         
         try:
-            response = _get_webpage(url=team_url)
+            response = _safe_get_webpage(url=team_url, _timeout=120)
             soup = BeautifulSoup(response.text, features="lxml")
             
             # Initialize record variables
@@ -2152,7 +1455,7 @@ def get_soccer_team_stats(
     # Helper function to scrape statistics table
     def scrape_stats_table(url, table_type="regular"):
         try:
-            response = _get_webpage(url=url)
+            response = _safe_get_webpage(url=url, _timeout=120)
         except Exception as e:
             logging.info(f"Found exception when loading {table_type} stats `{e}`")
             return pd.DataFrame()

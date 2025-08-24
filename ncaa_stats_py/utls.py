@@ -1240,6 +1240,34 @@ import atexit
 atexit.register(cleanup)
 
 
+def _safe_get_webpage(*args, **kwargs):
+    """Run _get_webpage in a thread if an asyncio loop is running.
+
+    This helper keeps sync Playwright / blocking HTTP calls off the running
+    asyncio event loop by executing them in a ThreadPoolExecutor when a loop
+    is detected. Callers may pass the same args/kwargs they would to
+    _get_webpage. A special optional kwarg `_timeout` (default 120s) sets the
+    maximum wait time for the thread future.
+    """
+    # Local import to avoid adding top-level dependencies or creating
+    # import-order issues in modules that import utls.
+    import concurrent.futures
+    import asyncio
+
+    timeout = kwargs.pop("_timeout", 120)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_get_webpage, *args, **kwargs)
+            return future.result(timeout=timeout)
+
+    return _get_webpage(*args, **kwargs)
+
+
 if __name__ == "__main__":
     # Test the new webpage function
     try:
