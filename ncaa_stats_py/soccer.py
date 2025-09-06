@@ -448,7 +448,7 @@ def load_soccer_teams(
     return pd.DataFrame()
 
 
-def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
+def get_soccer_team_schedule(team_id: int, get_womens_soccer_data: bool = False) -> pd.DataFrame:
     """
     Retrieves a team schedule, from a valid NCAA soccer team ID.
 
@@ -535,21 +535,8 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
     team_info_found = False
     
     try:
-        team_df = load_soccer_teams()
-        team_df = team_df[team_df["team_id"] == team_id]
-        if not team_df.empty:
-            season = team_df["season"].iloc[0]
-            ncaa_division = team_df["ncaa_division"].iloc[0]
-            ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
-            sport_id = "MSO"
-            team_info_found = True
-        del team_df
-    except Exception as e:
-        logging.info(f"Could not find team in men's soccer data: {e}")
-
-    if not team_info_found:
-        try:
-            team_df = load_soccer_teams(get_womens_soccer_data=True)
+        if get_womens_soccer_data:
+            team_df = load_soccer_teams(start_year=datetime.today().year, get_womens_soccer_data=True)
             team_df = team_df[team_df["team_id"] == team_id]
             if not team_df.empty:
                 season = team_df["season"].iloc[0]
@@ -558,8 +545,21 @@ def get_soccer_team_schedule(team_id: int) -> pd.DataFrame:
                 sport_id = "WSO"
                 team_info_found = True
             del team_df
-        except Exception as e:
+        else:
+            team_df = load_soccer_teams(start_year=datetime.today().year)
+            team_df = team_df[team_df["team_id"] == team_id]
+            if not team_df.empty:
+                season = team_df["season"].iloc[0]
+                ncaa_division = team_df["ncaa_division"].iloc[0]
+                ncaa_division_formatted = team_df["ncaa_division_formatted"].iloc[0]
+                sport_id = "MSO"
+                team_info_found = True
+            del team_df
+    except Exception as e:
+        if get_womens_soccer_data:
             logging.info(f"Could not find team in women's soccer data: {e}")
+        else:
+            logging.info(f"Could not find team in men's soccer data: {e}")
 
     # If team not found in cached data, extract info from the team page directly
     if not team_info_found:
@@ -1223,7 +1223,7 @@ def get_soccer_match_stats(
         
         try:
             # Get team schedule
-            schedule_df = get_soccer_team_schedule(team_id)
+            schedule_df = get_soccer_team_schedule(team_id, get_womens_soccer_data=get_womens_soccer_data)
             
             if schedule_df.empty:
                 logging.info(f"No schedule found for team {team_id} ({team_name})")
