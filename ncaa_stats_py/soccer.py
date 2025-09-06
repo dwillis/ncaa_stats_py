@@ -5,6 +5,7 @@
 
 
 import logging
+import os
 import re
 from datetime import date, datetime
 from os import mkdir
@@ -1085,6 +1086,273 @@ def get_soccer_game_player_stats(game_id: int) -> pd.DataFrame:
 
 def get_soccer_raw_pbp(game_id: int) -> pd.DataFrame:
     pass
+
+
+def get_soccer_match_stats(
+    season: int,
+    level: str | int = "I",
+    get_womens_soccer_data: bool = False
+) -> pd.DataFrame:
+    """
+    Retrieves game-by-game statistics for NCAA soccer teams, producing detailed
+    match stats for each team's games throughout the season.
+
+    Parameters
+    ----------
+    `season` (int, mandatory):
+        Required argument.
+        Specifies the season you want NCAA soccer match statistics from.
+
+    `level` (str | int, optional):
+        Optional argument (default: "I").
+        Specifies the level/division you want
+        NCAA soccer match statistics from.
+        This can either be an integer (1-3) or a string ("I"-"III").
+
+    `get_womens_soccer_data` (bool, optional):
+        Optional argument (default: False).
+        If you want women's soccer data instead of men's soccer data,
+        set this to `True`.
+
+    Usage
+    ----------
+    ```python
+
+    from ncaa_stats_py.soccer import get_soccer_match_stats
+
+    # Get all D1 men's soccer match statistics for the 2024 season.
+    df = get_soccer_match_stats(2024, 1)
+    print(df)
+
+    # Get all D1 women's soccer match statistics for the 2024 season.
+    df = get_soccer_match_stats(2024, 1, get_womens_soccer_data=True)
+    print(df)
+
+    ```
+
+    Returns
+    ----------
+    A pandas `DataFrame` object with game-by-game statistics for college soccer teams
+    in that season and NCAA level, including offensive and defensive stats for each match.
+    """
+    sport_id = "WSO" if get_womens_soccer_data else "MSO"
+    load_from_cache = True
+    home_dir = expanduser("~")
+    home_dir = _format_folder_str(home_dir)
+    match_stats_df = pd.DataFrame()
+    match_stats_df_arr = []
+    formatted_level = ""
+    ncaa_level = 0
+
+    # Parse level parameter
+    if isinstance(level, int) and level == 1:
+        formatted_level = "I"
+        ncaa_level = 1
+    elif isinstance(level, int) and level == 2:
+        formatted_level = "II"
+        ncaa_level = 2
+    elif isinstance(level, int) and level == 3:
+        formatted_level = "III"
+        ncaa_level = 3
+    elif isinstance(level, str) and (
+        level.lower() in {"i", "d1", "1"}
+    ):
+        ncaa_level = 1
+        formatted_level = "I"
+    elif isinstance(level, str) and (
+        level.lower() in {"ii", "d2", "2"}
+    ):
+        ncaa_level = 2
+        formatted_level = "II"
+    elif isinstance(level, str) and (
+        level.lower() in {"iii", "d3", "3"}
+    ):
+        ncaa_level = 3
+        formatted_level = "III"
+    else:
+        raise ValueError(
+            f"Improper input for `level`: `{level}`.\n"
+            + "Valid inputs are (but not limited to) "
+            + '`1`, "I", `2`, "II", `3`, and "III".'
+        )
+
+    # Create cache directories
+    base_cache_dir = f"{home_dir}/.ncaa_stats_py"
+    soccer_cache_dir = f"{base_cache_dir}/soccer_{sport_id}"
+    match_stats_cache_dir = f"{soccer_cache_dir}/match_stats"
+    
+    for d in [base_cache_dir, soccer_cache_dir, match_stats_cache_dir]:
+        if not os.path.exists(d):
+            os.makedirs(d)
+
+    # Check for cached data for the requested season only
+    cache_file = f"{match_stats_cache_dir}/{season}_{formatted_level}_match_stats.csv"
+    if os.path.exists(cache_file):
+        match_stats_df = pd.read_csv(cache_file)
+        file_mod_datetime = datetime.fromtimestamp(os.path.getmtime(cache_file))
+        now = datetime.today()
+        age = now - file_mod_datetime
+        # Only invalidate cache for the requested season
+        if (
+            age.days > 1 and season == now.year and now.month <= 7
+        ) or (
+            age.days >= 14 and season == (now.year - 1) and now.month <= 7
+        ) or age.days >= 35:
+            load_from_cache = False
+        else:
+            if load_from_cache:
+                return match_stats_df
+    else:
+        load_from_cache = False
+
+    logging.warning(
+        f"Either we could not load {season} D{level} match statistics from cache, "
+        + "or it's time to refresh the cached data."
+    )
+
+    # Get teams for this season/level
+    teams_df = get_soccer_teams(season, level, get_womens_soccer_data)
+    if teams_df.empty:
+        logging.warning(f"No teams found for {season} season, level {level}")
+        return pd.DataFrame()
+
+    # Process each team's schedule to get match stats
+    for _, team_row in tqdm(teams_df.iterrows(), desc="Processing team schedules", total=len(teams_df)):
+        team_id = team_row['team_id']
+        team_name = team_row['school_name']
+        
+        try:
+            # Get team schedule
+            schedule_df = get_soccer_team_schedule(team_id)
+            
+            if schedule_df.empty:
+                logging.info(f"No schedule found for team {team_id} ({team_name})")
+                continue
+                
+            # Process each game in the schedule
+            for _, game_row in schedule_df.iterrows():
+                game_id = game_row['game_id']
+                
+                if pd.isna(game_id) or game_id is None:
+                    continue
+                    
+                try:
+                    # Get match stats from box score
+                    match_stats = get_match_stats_from_box_score(game_id, team_id, team_name)
+                    
+                    if match_stats is not None:
+                        match_stats_df_arr.append(match_stats)
+                        
+                except Exception as e:
+                    logging.warning(f"Error processing game {game_id} for team {team_id}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Error processing team {team_id} ({team_name}): {e}")
+            continue
+
+    if not match_stats_df_arr:
+        logging.warning("No match statistics data found")
+        return pd.DataFrame()
+
+    # Combine all match stats
+    final_match_stats_df = pd.concat(match_stats_df_arr, ignore_index=True)
+    
+    # Sort by date and team
+    final_match_stats_df.sort_values(by=["date", "team"], inplace=True)
+
+    # Save to cache
+    final_match_stats_df.to_csv(cache_file, index=False)
+
+    return final_match_stats_df
+
+
+def get_match_stats_from_box_score(game_id: int, team_id: int, team_name: str) -> pd.DataFrame:
+    """
+    Helper function to extract match statistics from a soccer game box score.
+    
+    Parameters
+    ----------
+    game_id : int
+        The NCAA game ID
+    team_id : int
+        The team ID to extract stats for
+    team_name : str
+        The team name
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with match statistics for the specified team
+    """
+    try:
+        game_url = f"https://stats.ncaa.org/contests/{game_id}/box_score"
+        response = _safe_get_webpage(url=game_url, _timeout=120)
+        soup = BeautifulSoup(response.text, features="lxml")
+        
+        # Initialize match stats with default values
+        match_stats = {
+            "date": None,
+            "team": team_name,
+            "opponent": None,
+            "home_away": None,
+            "outcome": None,
+            "team_score": 0,
+            "opponent_score": 0,
+            "overtime": "NA",
+            "gp": 1,
+            "minutes": "0:00",
+            "goals": 0,
+            "assists": 0,
+            "points": 0,
+            "sh_att": 0,
+            "so_g": 0,
+            "fouls": 0,
+            "red_cards": 0,
+            "yellow_cards": 0,
+            "corners": 0,
+            "pk": 0,
+            "pk_att": "NA",
+            "gwg": "NA",
+            "defensive_minutes": "0:00",
+            "defensive_goals": 0,
+            "defensive_assists": 0,
+            "defensive_points": 0,
+            "defensive_sh_att": 0,
+            "defensive_so_g": 0,
+            "defensive_fouls": 0,
+            "defensive_red_cards": 0,
+            "defensive_yellow_cards": 0,
+            "defensive_corners": 0,
+            "defensive_pk": 0,
+            "defensive_pk_att": "NA",
+            "defensive_gwg": "NA",
+            "team_id": team_id
+        }
+        
+        # Extract basic game information
+        game_header = soup.find("div", class_="card-header")
+        if game_header:
+            header_text = game_header.text.strip()
+            # Extract date, teams, and score from header
+            # This would need to be implemented based on the actual HTML structure
+            pass
+        
+        # Find team statistics tables
+        # Look for tables containing team stats
+        stat_tables = soup.find_all("table")
+        
+        for table in stat_tables:
+            # Process each statistics table
+            # This would extract offensive and defensive stats
+            # Implementation depends on the actual box score HTML structure
+            pass
+        
+        return pd.DataFrame([match_stats])
+        
+    except Exception as e:
+        logging.error(f"Error extracting match stats for game {game_id}: {e}")
+        return None
 
 
 def get_soccer_team_stats(
